@@ -329,6 +329,8 @@ const conditionalModeOptions = [
 	{ str: "Checkpoint Range", value: 2 },
 	{ str: "Lap Range (Inverted)", value: 3 },
 	{ str: "Checkpoint Range (Inverted)", value: 4 },
+	{ str: "Lap Progress Range", value: 5 },
+	{ str: "Lap Progress Range (Inverted)", value: 6 },
 ]
 
 function clampCondIndex(value)
@@ -339,14 +341,54 @@ function clampCondIndex(value)
 	return Math.max(0, Math.min(7, value))
 }
 
+function clampCondPercent(value)
+{
+	value = Math.round(value)
+	if (!isFinite(value))
+		value = 0
+	return Math.max(0, Math.min(100, value))
+}
+
 function isLapCondMode(mode)
 {
-	return mode == 1 || mode == 3
+	return mode == 1 || mode == 3 || mode == 5 || mode == 6
+}
+
+function isLapProgressCondMode(mode)
+{
+	return mode == 5 || mode == 6
 }
 
 function isInvertedCondMode(mode)
 {
-	return mode == 3 || mode == 4
+	return mode == 3 || mode == 4 || mode == 6
+}
+
+function getCondPadding(p)
+{
+	return (p.xpfThing ?? 0) & 0xffff
+}
+
+function getCondProgressStartPercent(p)
+{
+	return clampCondPercent((getCondPadding(p) >> 8) & 0xff)
+}
+
+function getCondProgressEndPercent(p)
+{
+	return clampCondPercent(getCondPadding(p) & 0xff)
+}
+
+function setCondProgressStartPercent(p, value)
+{
+	let padding = getCondPadding(p)
+	p.xpfThing = ((clampCondPercent(value) << 8) | (padding & 0xff)) & 0xffff
+}
+
+function setCondProgressEndPercent(p, value)
+{
+	let padding = getCondPadding(p)
+	p.xpfThing = ((padding & 0xff00) | clampCondPercent(value)) & 0xffff
 }
 
 function getCondDisplayStart(p)
@@ -388,13 +430,157 @@ function describeConditional(p)
 		start += 1
 		end += 1
 	}
-	
+
+	if (isLapProgressCondMode(mode))
+	{
+		let startPercent = getCondProgressStartPercent(p)
+		let endPercent = getCondProgressEndPercent(p)
+		let startValue = clampCondIndex(p.condStart || 0) * 100 + startPercent
+		let endValue = clampCondIndex(p.condEnd || 0) * 100 + endPercent
+		let wraps = startValue > endValue ? " (wrap-around)" : ""
+		let rangeText = "lap " + start + " @ " + startPercent + "% to lap " + end + " @ " + endPercent + "%"
+		if (isInvertedCondMode(mode))
+			return "<strong>Conditional State:</strong> OFF in " + rangeText + wraps + ", ON elsewhere"
+		return "<strong>Conditional State:</strong> ON in " + rangeText + wraps + ", OFF elsewhere"
+	}
+
 	let targetName = isLapCondMode(mode) ? "laps" : "checkpoint regions"
 	let wraps = (p.condStart || 0) > (p.condEnd || 0) ? " (wrap-around)" : ""
-
 	if (isInvertedCondMode(mode))
 		return "<strong>Conditional State:</strong> OFF in " + targetName + " " + start + " to " + end + wraps + ", ON elsewhere"
 	return "<strong>Conditional State:</strong> ON in " + targetName + " " + start + " to " + end + wraps + ", OFF elsewhere"
+}
+
+function getCheckpointCompletion(point, maxLayer)
+{
+	if (point == null || point.pathLen == null || point.pathLen <= 0 || point.pathPointIndex == null || point.pathLayer == null || maxLayer < 0)
+		return null
+
+	let groupCompletion = point.pathPointIndex / point.pathLen
+	let overallCompletion = (groupCompletion + point.pathLayer) / (maxLayer + 1)
+	return isFinite(overallCompletion) ? overallCompletion : null
+}
+
+function getCheckpointCenter(point)
+{
+	return point.pos[0].add(point.pos[1]).scale(0.5)
+}
+
+function projectPointOntoSegment2D(point, start, end)
+{
+	let dx = end.x - start.x
+	let dy = end.y - start.y
+	let lenSq = dx * dx + dy * dy
+	if (lenSq <= 0)
+	{
+		let offsetX = point.x - start.x
+		let offsetY = point.y - start.y
+		return { t: 0, distSq: offsetX * offsetX + offsetY * offsetY }
+	}
+
+	let t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lenSq
+	t = Math.max(0, Math.min(1, t))
+
+	let projX = start.x + dx * t
+	let projY = start.y + dy * t
+	let distX = point.x - projX
+	let distY = point.y - projY
+
+	return { t, distSq: distX * distX + distY * distY }
+}
+
+function normalizeProgress(progress)
+{
+	if (!isFinite(progress))
+		return null
+
+	let wrapped = progress % 1
+	if (wrapped < 0)
+		wrapped += 1
+	return wrapped
+}
+
+function getLapProgressPercentForObject(data, objectPoint)
+{
+	if (objectPoint == null || objectPoint.pos == null || data == null || data.checkpointPoints == null)
+		return null
+
+	let checkpointPoints = data.checkpointPoints.nodes
+	if (checkpointPoints == null || checkpointPoints.length == 0)
+		return null
+
+	let maxLayer = data.checkpointPoints.maxLayer
+	if (!isFinite(maxLayer) || maxLayer < 0)
+	{
+		maxLayer = -1
+		for (let point of checkpointPoints)
+		{
+			if (point.pathLayer != null && isFinite(point.pathLayer))
+				maxLayer = Math.max(maxLayer, point.pathLayer)
+		}
+	}
+	if (maxLayer < 0)
+		return null
+
+	let bestDistSq = Infinity
+	let bestProgress = null
+
+	for (let point of checkpointPoints)
+	{
+		let pointCompletion = getCheckpointCompletion(point, maxLayer)
+		if (pointCompletion == null)
+			continue
+
+		let pointCenter = getCheckpointCenter(point)
+		if (!pointCenter.isFinite())
+			continue
+
+		let hasSegment = false
+
+		for (let next of point.next)
+		{
+			if (next == null || next.node == null)
+				continue
+
+			let nextCompletion = getCheckpointCompletion(next.node, maxLayer)
+			if (nextCompletion == null)
+				continue
+
+			let nextCenter = getCheckpointCenter(next.node)
+			if (!nextCenter.isFinite())
+				continue
+
+			let projection = projectPointOntoSegment2D(objectPoint.pos, pointCenter, nextCenter)
+			let segmentStart = pointCompletion
+			let segmentEnd = nextCompletion
+			if (segmentEnd < segmentStart)
+				segmentEnd += 1
+
+			let progress = normalizeProgress(segmentStart + (segmentEnd - segmentStart) * projection.t)
+			if (progress != null && projection.distSq < bestDistSq)
+			{
+				bestDistSq = projection.distSq
+				bestProgress = progress
+			}
+
+			hasSegment = true
+		}
+
+		if (hasSegment)
+			continue
+
+		let distX = objectPoint.pos.x - pointCenter.x
+		let distY = objectPoint.pos.y - pointCenter.y
+		let distSq = distX * distX + distY * distY
+		let progress = normalizeProgress(pointCompletion)
+		if (progress != null && distSq < bestDistSq)
+		{
+			bestDistSq = distSq
+			bestProgress = progress
+		}
+	}
+
+	return bestProgress != null ? bestProgress * 100 : null
 }
 
 
@@ -449,6 +635,9 @@ class ViewerObjects extends PointViewer
 		{
 			let i = this.data.objects.nodes.findIndex(p => p === selectedPoints[0])
 			panel.addText(selectionGroup, "<strong>GOBJ Index:</strong> " + i.toString() + " (0x" + i.toString(16) + ")")
+
+			let lapProgress = getLapProgressPercentForObject(this.data, selectedPoints[0])
+			panel.addText(selectionGroup, "<strong>Lap Progress:</strong> " + (lapProgress != null ? (lapProgress.toFixed(4).toString() + "%") : "N/A"))
 		}
 		
 		let objName = panel.addText(selectionGroup, "<strong>Name:</strong> " + (selectedPoints.length > 0 ? objectNames[selectedPoints[0].id] : ""))
@@ -480,7 +669,7 @@ class ViewerObjects extends PointViewer
 				panel.addSelectionNumericInput(selectionGroup, "Setting " + (s + 1), 0, 0xffff, selectedPoints.map(p => p.settings[s]), 1.0, 1.0, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].settings[s] = x })
 
 		panel.addSpacer(selectionGroup)
-		panel.addText(selectionGroup, "<strong>Conditional Objects (Presence Flags bits 3-11):</strong>")
+		panel.addText(selectionGroup, "<strong>Conditional Objects (Presence Flags bits 3-11, Padding for Lap Progress %):</strong>")
 		panel.addSelectionDropdown(selectionGroup, "Cond. Mode", selectedPoints.map(p => p.condMode || 0), conditionalModeOptions, enabled, multiedit, (x, i) => {
 			this.window.setNotSaved()
 			selectedPoints[i].condMode = x
@@ -497,10 +686,26 @@ class ViewerObjects extends PointViewer
 			if (mode == 0) { selectedPoints[i].condMode = 1; mode = 1 }
 			selectedPoints[i].condEnd = condDisplayToRaw(mode, x)
 		})
+		panel.addSelectionNumericInput(selectionGroup, "Cond. Start %", 0, 100, selectedPoints.map(p => getCondProgressStartPercent(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
+			this.window.setNotSaved()
+			let mode = selectedPoints[i].condMode || 0
+			if (!isLapProgressCondMode(mode))
+				selectedPoints[i].condMode = 5
+			setCondProgressStartPercent(selectedPoints[i], x)
+		})
+		panel.addSelectionNumericInput(selectionGroup, "Cond. End %", 0, 100, selectedPoints.map(p => getCondProgressEndPercent(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
+			this.window.setNotSaved()
+			let mode = selectedPoints[i].condMode || 0
+			if (!isLapProgressCondMode(mode))
+				selectedPoints[i].condMode = 5
+			setCondProgressEndPercent(selectedPoints[i], x)
+		})
 		if (enabled && selectedPoints.length > 0)
 		{
 			let first = selectedPoints[0]
 			let allSame = selectedPoints.every(p => (p.condMode || 0) === (first.condMode || 0) && (p.condStart || 0) === (first.condStart || 0) && (p.condEnd || 0) === (first.condEnd || 0))
+			if (allSame && isLapProgressCondMode(first.condMode || 0))
+				allSame = selectedPoints.every(p => getCondProgressStartPercent(p) === getCondProgressStartPercent(first) && getCondProgressEndPercent(p) === getCondProgressEndPercent(first))
 			if (allSame)
 				panel.addText(selectionGroup, describeConditional(first))
 			else
