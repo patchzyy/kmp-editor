@@ -233,8 +233,10 @@ class MainWindow
 	refreshPanels()
 	{
 		let panel = this.addPanel("Model")
-		panel.addText(null, "<strong>Right Mouse:</strong> Rotate Camera")
-		panel.addText(null, "<strong>Hold Shift + Right Mouse:</strong> Pan Camera")
+		panel.addText(null, "<strong>Hold Right Mouse:</strong> Look Around")
+		panel.addText(null, "<strong>Hold Right Mouse + WASDQE:</strong> Move Camera")
+		panel.addText(null, "<strong>Middle Mouse:</strong> Rotate Camera")
+		panel.addText(null, "<strong>Hold Shift + Middle Mouse:</strong> Pan Camera")
 		panel.addText(null, "<strong>Mouse Wheel:</strong> Zoom")
 		panel.addText(null, "<strong>Double Right Click:</strong> Focus Camera")
 		panel.addSpacer(null)

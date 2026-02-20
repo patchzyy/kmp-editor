@@ -19,9 +19,9 @@ const { Mat4 } = require("../math/mat4.js")
 
 class Viewer
 {
-	constructor(window, canvas, cfg, data)
+	constructor(mainWindow, canvas, cfg, data)
 	{
-		this.window = window
+		this.window = mainWindow
 		this.cfg = cfg
 		this.data = data
 		
@@ -32,7 +32,14 @@ class Viewer
 		document.addEventListener("mouseup", (ev) => this.onMouseUp(ev))
 		document.addEventListener("mouseleave", (ev) => this.onMouseUp(ev))
 		this.canvas.onwheel = (ev) => this.onMouseWheel(ev)
+		this.canvas.oncontextmenu = (ev) => ev.preventDefault()
 		document.onkeydown = (ev) => this.onKeyDown(ev)
+		document.addEventListener("keyup", (ev) => this.onKeyUp(ev))
+		globalThis.window.addEventListener("blur", () =>
+		{
+			this.keysDown = {}
+			this.stopFlyMovementLoop()
+		})
 		
 		this.subviewer = null
 		
@@ -47,6 +54,9 @@ class Viewer
 		this.mouseMoveOffsetPan = new Vec3(0, 0, 0)
 		this.mouseMoveOffsetPanDelta = new Vec3(0, 0, 0)
 		this.mouseMoveOffsetRaycast = new Vec3(0, 0, 0)
+		this.keysDown = {}
+		this.flyMoveAnimFrame = null
+		this.flyMoveLastTime = 0
 		
 		this.cameraFocus = new Vec3(0, 0, 0)
 		this.cameraHorzAngle = Math.PI / 2
@@ -127,7 +137,7 @@ class Viewer
 			new ViewerFinishPoints(this.window, this, this.data),
 		]
 		
-		this.subviewerRoutes = this.subviewers[6]
+		this.subviewerRoutes = this.subviewers[7]
 		
 		this.currentSubviewer = this.subviewers[0]
 		
@@ -150,7 +160,10 @@ class Viewer
 	refreshPanels()
 	{
 		for (let subviewer of this.subviewers)
-			subviewer.refreshPanels()
+		{
+			if (subviewer)
+				subviewer.refreshPanels()
+		}
 	}
 	
 	
@@ -158,7 +171,10 @@ class Viewer
 	{
 		this.data = data
 		for (let subviewer of this.subviewers)
-			subviewer.setData(data)
+		{
+			if (subviewer)
+				subviewer.setData(data)
+		}
 	}
 	
 	
@@ -166,13 +182,14 @@ class Viewer
 	{
 		this.modelBuilder = modelBuilder
 		this.model = modelBuilder.makeModel(this.gl)
-		this.renderer.setModel(this.model)
+		if (this.renderer && this.renderer.setModel)
+			this.renderer.setModel(this.model)
 		
 		this.collision = modelBuilder.makeCollision().buildCacheSubdiv()
 		
 		for (let subviewer of this.subviewers)
 		{
-			if (subviewer.setModel)
+			if (subviewer && subviewer.setModel)
 				subviewer.setModel(modelBuilder)
 		}
 	}
@@ -215,14 +232,7 @@ class Viewer
 	render()
 	{
 		// Cache camera position
-		let eyeZDist = Math.cos(this.cameraVertAngle)
-		
-		let cameraEyeOffset = new Vec3(
-			Math.cos(this.cameraHorzAngle) * this.cameraDist * eyeZDist,
-			-Math.sin(this.cameraHorzAngle) * this.cameraDist * eyeZDist,
-			-Math.sin(this.cameraVertAngle) * this.cameraDist)
-		
-		this.cachedCameraPos = this.cameraFocus.add(cameraEyeOffset)
+		this.cachedCameraPos = this.cameraFocus.add(this.getCameraEyeOffset())
 		
 		// Cache camera
 		if (this.cfg.useOrthoProjection)
@@ -275,6 +285,116 @@ class Viewer
 	getCurrentCamera()
 	{
 		return this.cachedCamera
+	}
+
+
+	getCameraEyeOffset()
+	{
+		let eyeZDist = Math.cos(this.cameraVertAngle)
+		return new Vec3(
+			Math.cos(this.cameraHorzAngle) * this.cameraDist * eyeZDist,
+			-Math.sin(this.cameraHorzAngle) * this.cameraDist * eyeZDist,
+			-Math.sin(this.cameraVertAngle) * this.cameraDist)
+	}
+
+
+	isFlyMovementKey(ev)
+	{
+		return ev.code == "KeyW" || ev.code == "KeyA" || ev.code == "KeyS" || ev.code == "KeyD" || ev.code == "KeyQ" || ev.code == "KeyE"
+	}
+
+
+	hasFlyMovementInput()
+	{
+		return !!(this.keysDown["KeyW"] || this.keysDown["KeyA"] || this.keysDown["KeyS"] || this.keysDown["KeyD"] || this.keysDown["KeyQ"] || this.keysDown["KeyE"])
+	}
+
+
+	startFlyMovementLoop()
+	{
+		if (this.flyMoveAnimFrame != null)
+			return
+		
+		if (!this.mouseDown || this.mouseAction != "fly")
+			return
+		
+		if (!this.hasFlyMovementInput())
+			return
+		
+		this.flyMoveLastTime = performance.now()
+		this.flyMoveAnimFrame = globalThis.window.requestAnimationFrame((time) => this.updateFlyMovementFrame(time))
+	}
+
+
+	stopFlyMovementLoop()
+	{
+		if (this.flyMoveAnimFrame != null)
+			globalThis.window.cancelAnimationFrame(this.flyMoveAnimFrame)
+		
+		this.flyMoveAnimFrame = null
+		this.flyMoveLastTime = 0
+	}
+
+
+	updateFlyMovementFrame(time)
+	{
+		this.flyMoveAnimFrame = null
+		
+		if (!this.mouseDown || this.mouseAction != "fly" || !this.hasFlyMovementInput())
+			return
+		
+		let dt = (time - this.flyMoveLastTime) / 1000
+		this.flyMoveLastTime = time
+		dt = Math.max(0.001, Math.min(0.05, dt))
+		
+		if (this.moveFlyCamera(dt))
+			this.render()
+		
+		this.flyMoveAnimFrame = globalThis.window.requestAnimationFrame((nextTime) => this.updateFlyMovementFrame(nextTime))
+	}
+
+
+	moveFlyCamera(dt)
+	{
+		let worldUp = new Vec3(0, 0, -1)
+		let cameraPos = this.getCurrentCameraPosition()
+		let forward = this.cameraFocus.sub(cameraPos)
+		
+		if (forward.magn() <= 0.0001)
+			return false
+		
+		forward = forward.normalize()
+		let right = worldUp.cross(forward)
+		
+		if (right.magn() <= 0.0001)
+			right = new Vec3(Math.sin(this.cameraHorzAngle), Math.cos(this.cameraHorzAngle), 0)
+		else
+			right = right.normalize()
+		
+		let move = new Vec3(0, 0, 0)
+		
+		if (this.keysDown["KeyW"])
+			move = move.add(forward)
+		if (this.keysDown["KeyS"])
+			move = move.sub(forward)
+		if (this.keysDown["KeyA"])
+			move = move.sub(right)
+		if (this.keysDown["KeyD"])
+			move = move.add(right)
+		if (this.keysDown["KeyE"])
+			move = move.add(worldUp)
+		if (this.keysDown["KeyQ"])
+			move = move.sub(worldUp)
+		
+		if (move.magn() <= 0.0001)
+			return false
+		
+		let speed = Math.max(2000, this.cameraDist * 3)
+		if (this.keysDown["ShiftLeft"] || this.keysDown["ShiftRight"])
+			speed *= 2.5
+		
+		this.cameraFocus = this.cameraFocus.add(move.normalize().scale(speed * dt))
+		return true
 	}
 	
 	
@@ -335,6 +455,8 @@ class Viewer
 	
 	onKeyDown(ev)
 	{
+		this.keysDown[ev.code] = true
+		
 		if (ev.repeat == undefined)
 			this.window.setUndoPoint()
 		
@@ -343,6 +465,13 @@ class Viewer
 			this.cfg.useOrthoProjection = !this.cfg.useOrthoProjection
 			ev.preventDefault()
 			this.render()
+			return
+		}
+		
+		if (this.mouseDown && this.mouseAction == "fly" && this.isFlyMovementKey(ev))
+		{
+			this.startFlyMovementLoop()
+			ev.preventDefault()
 			return
 		}
 		
@@ -355,6 +484,15 @@ class Viewer
 				return
 			}
 		}
+	}
+
+
+	onKeyUp(ev)
+	{
+		delete this.keysDown[ev.code]
+		
+		if (!this.hasFlyMovementInput())
+			this.stopFlyMovementLoop()
 	}
 	
 	
@@ -384,10 +522,29 @@ class Viewer
 		this.mouseMoveOffsetPanDelta = new Vec3(0, 0, 0)
 		this.mouseMoveOffsetRaycast = new Vec3(0, 0, 0)
 		
-		if (ev.button == 2 || ev.button == 1)
+		if (ev.button == 2)
 		{
 			ev.preventDefault()
-
+	
+			if (doubleClick)
+			{
+				let ray = this.getScreenRay(mouse.x, mouse.y)
+				let hit = this.collision.raycast(ray.origin, ray.direction)
+				if (hit != null)
+				{
+					this.cameraFocus = hit.position
+					this.cameraDist = 8000
+				}
+			}
+			else
+				this.mouseAction = "fly"
+			
+			this.startFlyMovementLoop()
+		}
+		else if (ev.button == 1)
+		{
+			ev.preventDefault()
+	
 			if (doubleClick)
 			{
 				let ray = this.getScreenRay(mouse.x, mouse.y)
@@ -454,6 +611,16 @@ class Viewer
 				
 				this.cameraVertAngle = Math.max(-Math.PI / 2 + 0.0001, Math.min(Math.PI / 2 - 0.0001, this.cameraVertAngle))
 			}
+			else if (this.mouseAction == "fly")
+			{
+				let cameraPos = this.getCurrentCameraPosition()
+				
+				this.cameraHorzAngle += dx * 0.0075
+				this.cameraVertAngle += dy * 0.0075
+				this.cameraVertAngle = Math.max(-Math.PI / 2 + 0.0001, Math.min(Math.PI / 2 - 0.0001, this.cameraVertAngle))
+				this.cameraFocus = cameraPos.sub(this.getCameraEyeOffset())
+				this.startFlyMovementLoop()
+			}
 			else if (this.mouseAction == "move")
 			{
 				let matrix = this.getCurrentCamera().view
@@ -501,6 +668,7 @@ class Viewer
 		this.window.setUndoPoint()
 		this.mouseDown = false
 		this.mouseLast = mouse
+		this.stopFlyMovementLoop()
 	}
 	
 	
