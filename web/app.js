@@ -7150,6 +7150,314 @@ var KmpEditorWeb = (() => {
     }
   });
 
+  // src/util/szs.js
+  var require_szs = __commonJS({
+    "src/util/szs.js"(exports, module) {
+      function readUInt32BE(bytes, offset) {
+        return (bytes[offset + 0] << 24 | bytes[offset + 1] << 16 | bytes[offset + 2] << 8 | bytes[offset + 3] << 0) >>> 0;
+      }
+      function writeUInt32BE(bytes, offset, value) {
+        bytes[offset + 0] = value >>> 24 & 255;
+        bytes[offset + 1] = value >>> 16 & 255;
+        bytes[offset + 2] = value >>> 8 & 255;
+        bytes[offset + 3] = value >>> 0 & 255;
+      }
+      function align(x, n) {
+        return ((x + n - 1) / n | 0) * n;
+      }
+      function normalizeArchivePath(path) {
+        if (path == null)
+          return "";
+        return path.replace(new RegExp("\\\\", "g"), "/").replace(/^\/+/, "").replace(/\/+/g, "/");
+      }
+      var SzsArchive = class _SzsArchive {
+        static parse(bytes) {
+          let input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+          let archiveBytes = input;
+          let wasCompressed = false;
+          if (input.length >= 4 && input[0] == 89 && input[1] == 97 && input[2] == 122 && input[3] == 48) {
+            archiveBytes = _SzsArchive.decodeYaz0(input);
+            wasCompressed = true;
+          }
+          let entries = _SzsArchive.parseU8(archiveBytes);
+          return { entries, wasCompressed };
+        }
+        static make(entries, compress = true) {
+          let u8 = _SzsArchive.buildU8(entries);
+          return compress ? _SzsArchive.encodeYaz0LiteralOnly(u8) : u8;
+        }
+        static cloneEntries(entries) {
+          let map = /* @__PURE__ */ new Map();
+          if (entries == null)
+            return map;
+          for (let [path, bytes] of entries)
+            map.set(path, new Uint8Array(bytes));
+          return map;
+        }
+        static findPath(entries, filename) {
+          if (entries == null || filename == null)
+            return null;
+          let lowered = filename.toLowerCase();
+          for (let [path, _] of entries) {
+            let p = path.toLowerCase();
+            if (p == lowered || p.endsWith("/" + lowered))
+              return path;
+          }
+          return null;
+        }
+        static parseU8(bytes) {
+          if (bytes.length < 32)
+            throw "szs: archive too small";
+          let magic = readUInt32BE(bytes, 0);
+          if (magic != 1437218861)
+            throw "szs: invalid U8 magic";
+          let rootOffset = readUInt32BE(bytes, 4);
+          if (rootOffset + 12 > bytes.length)
+            throw "szs: invalid root node offset";
+          let rootTypeAndName = readUInt32BE(bytes, rootOffset);
+          let rootType = rootTypeAndName >>> 24;
+          if (rootType != 1)
+            throw "szs: invalid root node";
+          let nodeCount = readUInt32BE(bytes, rootOffset + 8);
+          let nodeTableSize = nodeCount * 12;
+          let stringTableOffset = rootOffset + nodeTableSize;
+          if (stringTableOffset > bytes.length)
+            throw "szs: invalid node table size";
+          let nodes = [];
+          for (let i = 0; i < nodeCount; i++) {
+            let offset = rootOffset + i * 12;
+            let typeAndName = readUInt32BE(bytes, offset + 0);
+            nodes.push({
+              type: typeAndName >>> 24,
+              nameOffset: typeAndName & 16777215,
+              dataOffset: readUInt32BE(bytes, offset + 4),
+              size: readUInt32BE(bytes, offset + 8),
+              name: ""
+            });
+          }
+          let readCString = (offset) => {
+            let chars = [];
+            for (let i = offset; i < bytes.length; i++) {
+              let c = bytes[i];
+              if (c == 0)
+                break;
+              chars.push(c);
+            }
+            return new TextDecoder("utf-8").decode(new Uint8Array(chars));
+          };
+          for (let i = 0; i < nodes.length; i++) {
+            let nameOffset = stringTableOffset + nodes[i].nameOffset;
+            if (nameOffset < 0 || nameOffset >= bytes.length)
+              nodes[i].name = "";
+            else
+              nodes[i].name = readCString(nameOffset);
+          }
+          let entries = /* @__PURE__ */ new Map();
+          let walkDirectory = (dirIndex, parentPath) => {
+            let endIndex = nodes[dirIndex].size;
+            let i = dirIndex + 1;
+            while (i < endIndex) {
+              let node = nodes[i];
+              let fullPath = parentPath == "" ? node.name : parentPath + "/" + node.name;
+              if (node.type == 1) {
+                walkDirectory(i, fullPath);
+                i = node.size;
+              } else {
+                let dataStart = node.dataOffset;
+                let dataEnd = node.dataOffset + node.size;
+                if (dataStart < 0 || dataEnd > bytes.length)
+                  throw "szs: invalid file range";
+                entries.set(fullPath, bytes.slice(dataStart, dataEnd));
+                i += 1;
+              }
+            }
+          };
+          walkDirectory(0, "");
+          return entries;
+        }
+        static buildU8(entries) {
+          let normalizedEntries = [];
+          for (let [path, bytes] of entries) {
+            let normalizedPath = normalizeArchivePath(path);
+            if (normalizedPath == "")
+              continue;
+            let fileBytes = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+            normalizedEntries.push({ path: normalizedPath, bytes: fileBytes });
+          }
+          let root = {
+            kind: "dir",
+            name: "",
+            children: [],
+            childDirs: /* @__PURE__ */ new Map(),
+            childFiles: /* @__PURE__ */ new Map()
+          };
+          for (let entry of normalizedEntries) {
+            let parts = entry.path.split("/").filter((x) => x != "");
+            if (parts.length == 0)
+              continue;
+            let node = root;
+            for (let i = 0; i < parts.length - 1; i++) {
+              let dirName = parts[i];
+              if (!node.childDirs.has(dirName)) {
+                let child = {
+                  kind: "dir",
+                  name: dirName,
+                  children: [],
+                  childDirs: /* @__PURE__ */ new Map(),
+                  childFiles: /* @__PURE__ */ new Map()
+                };
+                node.childDirs.set(dirName, child);
+                node.children.push(child);
+              }
+              node = node.childDirs.get(dirName);
+            }
+            let fileName = parts[parts.length - 1];
+            if (node.childFiles.has(fileName)) {
+              node.childFiles.get(fileName).bytes = entry.bytes;
+            } else {
+              let fileNode = { kind: "file", name: fileName, bytes: entry.bytes };
+              node.childFiles.set(fileName, fileNode);
+              node.children.push(fileNode);
+            }
+          }
+          let nodes = [];
+          let appendNode = (node, parentIndex) => {
+            if (node.kind == "dir") {
+              let index = nodes.length;
+              nodes.push({
+                kind: "dir",
+                name: node.name,
+                parentIndex,
+                nextIndex: 0,
+                nameOffset: 0
+              });
+              for (let child of node.children)
+                appendNode(child, index);
+              nodes[index].nextIndex = nodes.length;
+            } else {
+              nodes.push({
+                kind: "file",
+                name: node.name,
+                nameOffset: 0,
+                dataOffset: 0,
+                size: node.bytes.length,
+                bytes: node.bytes
+              });
+            }
+          };
+          appendNode(root, 0);
+          let stringTable = [0];
+          let encoder = new TextEncoder();
+          for (let i = 0; i < nodes.length; i++) {
+            let node = nodes[i];
+            if (i == 0) {
+              node.nameOffset = 0;
+              continue;
+            }
+            node.nameOffset = stringTable.length;
+            let nameBytes = encoder.encode(node.name);
+            for (let b of nameBytes)
+              stringTable.push(b);
+            stringTable.push(0);
+          }
+          let rootOffset = 32;
+          let nodeTableSize = nodes.length * 12;
+          let stringOffset = rootOffset + nodeTableSize;
+          let headerSize = stringOffset + stringTable.length;
+          let dataOffset = align(headerSize, 32);
+          let curDataOffset = dataOffset;
+          for (let node of nodes) {
+            if (node.kind != "file")
+              continue;
+            curDataOffset = align(curDataOffset, 32);
+            node.dataOffset = curDataOffset;
+            curDataOffset += node.size;
+          }
+          let out = new Uint8Array(curDataOffset);
+          writeUInt32BE(out, 0, 1437218861);
+          writeUInt32BE(out, 4, rootOffset);
+          writeUInt32BE(out, 8, headerSize);
+          writeUInt32BE(out, 12, dataOffset);
+          for (let i = 0; i < nodes.length; i++) {
+            let node = nodes[i];
+            let offset = rootOffset + i * 12;
+            let type = node.kind == "dir" ? 1 : 0;
+            let typeAndName = (type << 24 | node.nameOffset) >>> 0;
+            writeUInt32BE(out, offset + 0, typeAndName);
+            if (node.kind == "dir") {
+              writeUInt32BE(out, offset + 4, i == 0 ? 0 : node.parentIndex);
+              writeUInt32BE(out, offset + 8, node.nextIndex);
+            } else {
+              writeUInt32BE(out, offset + 4, node.dataOffset);
+              writeUInt32BE(out, offset + 8, node.size);
+            }
+          }
+          for (let i = 0; i < stringTable.length; i++)
+            out[stringOffset + i] = stringTable[i];
+          for (let node of nodes) {
+            if (node.kind != "file")
+              continue;
+            out.set(node.bytes, node.dataOffset);
+          }
+          return out;
+        }
+        static decodeYaz0(bytes) {
+          let outSize = readUInt32BE(bytes, 4);
+          let out = new Uint8Array(outSize);
+          let srcPos = 16;
+          let dstPos = 0;
+          let code = 0;
+          let validBits = 0;
+          while (dstPos < outSize) {
+            if (validBits == 0) {
+              code = bytes[srcPos++];
+              validBits = 8;
+            }
+            if ((code & 128) != 0) {
+              out[dstPos++] = bytes[srcPos++];
+            } else {
+              let b1 = bytes[srcPos++];
+              let b2 = bytes[srcPos++];
+              let dist = (b1 & 15) << 8 | b2;
+              let copyPos = dstPos - (dist + 1);
+              let length = b1 >> 4;
+              if (length == 0)
+                length = bytes[srcPos++] + 18;
+              else
+                length += 2;
+              for (let i = 0; i < length; i++) {
+                out[dstPos++] = out[copyPos++];
+                if (dstPos >= outSize)
+                  break;
+              }
+            }
+            code = code << 1 & 255;
+            validBits -= 1;
+          }
+          return out;
+        }
+        static encodeYaz0LiteralOnly(bytes) {
+          let input = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+          let out = [];
+          out.push(89, 97, 122, 48);
+          let size = input.length >>> 0;
+          out.push(size >>> 24 & 255, size >>> 16 & 255, size >>> 8 & 255, size & 255);
+          out.push(0, 0, 0, 0, 0, 0, 0, 0);
+          let pos = 0;
+          while (pos < input.length) {
+            let count = Math.min(8, input.length - pos);
+            out.push(255);
+            for (let i = 0; i < count; i++)
+              out.push(input[pos++]);
+          }
+          return new Uint8Array(out);
+        }
+      };
+      if (module)
+        module.exports = { SzsArchive, normalizeArchivePath };
+    }
+  });
+
   // src/util/objLoader.js
   var require_objLoader = __commonJS({
     "src/util/objLoader.js"(exports, module) {
@@ -8022,6 +8330,7 @@ var KmpEditorWeb = (() => {
       var { ModelBuilder } = require_modelBuilder();
       var { KmpData } = require_kmpData();
       var { KclLoader, collisionTypeData } = require_kclLoader();
+      var { SzsArchive, normalizeArchivePath } = require_szs();
       var gMainWindow = null;
       var APP_VERSION = true ? "0.7.7" : "web";
       function main() {
@@ -8050,9 +8359,15 @@ var KmpEditorWeb = (() => {
           this.currentKclFileHandle = null;
           this.currentKclBytes = null;
           this.currentModelFileHandle = null;
+          this.currentSzsFileHandle = null;
+          this.currentArchiveEntries = null;
+          this.currentArchiveKmpPath = null;
+          this.currentArchiveKclPath = null;
+          this.currentArchiveSourceName = null;
           document.body.onresize = () => this.onResize();
           window.addEventListener("beforeunload", (ev) => this.onClose(ev));
           this.bindToolbar();
+          this.setupDragAndDropSzsImport();
           document.body.onkeydown = (ev) => {
             const isMod = ev.ctrlKey || ev.metaKey;
             const key = ev.key.toLowerCase();
@@ -8265,6 +8580,7 @@ var KmpEditorWeb = (() => {
           bind("btnNewKmp", () => this.newKmp());
           bind("btnOpenKmp", () => this.askOpenKmp());
           bind("btnOpenTrackFolder", () => this.askOpenTrackFolder());
+          bind("btnImportSzs", () => this.askImportSzs());
           bind("btnSaveKmp", () => this.saveKmp(this.currentKmpFilename));
           bind("btnSaveKmpAs", () => this.saveKmpAs());
           bind("btnOpenModel", () => this.openCustomModel());
@@ -8275,6 +8591,37 @@ var KmpEditorWeb = (() => {
           bind("btnRedo", () => {
             this.redo();
             return Promise.resolve();
+          });
+        }
+        setupDragAndDropSzsImport() {
+          const hasSzsFile = (dataTransfer) => {
+            if (dataTransfer == null || dataTransfer.files == null)
+              return false;
+            for (const file of dataTransfer.files) {
+              if ((file.name || "").toLowerCase().endsWith(".szs"))
+                return true;
+            }
+            return false;
+          };
+          window.addEventListener("dragover", (ev) => {
+            if (!hasSzsFile(ev.dataTransfer))
+              return;
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = "copy";
+          });
+          window.addEventListener("drop", async (ev) => {
+            if (!hasSzsFile(ev.dataTransfer))
+              return;
+            ev.preventDefault();
+            if (!await this.askSaveChanges())
+              return;
+            for (const file of ev.dataTransfer.files) {
+              if (!(file.name || "").toLowerCase().endsWith(".szs"))
+                continue;
+              const bytes = new Uint8Array(await file.arrayBuffer());
+              await this.openSzsFromBytes(file.name, bytes);
+              break;
+            }
           });
         }
         async pickSingleFileFromInput(accept, directory = false) {
@@ -8341,6 +8688,44 @@ var KmpEditorWeb = (() => {
             return null;
           }
         }
+        async readAllFilesFromDirectoryHandle(directoryHandle, prefix = "") {
+          let entries = /* @__PURE__ */ new Map();
+          for await (const [name, handle] of directoryHandle.entries()) {
+            const localPath = prefix == "" ? name : prefix + "/" + name;
+            if (handle.kind == "directory") {
+              const childEntries = await this.readAllFilesFromDirectoryHandle(handle, localPath);
+              for (const [childPath, childBytes] of childEntries)
+                entries.set(childPath, childBytes);
+            } else if (handle.kind == "file") {
+              entries.set(localPath, await this.readHandleBytes(handle));
+            }
+          }
+          return entries;
+        }
+        getCurrentKmpStorageBytes() {
+          return new Uint8Array(this.currentKmpData.convertToStorageFormat(this.cfg.isBattleTrack));
+        }
+        getCurrentArchiveEntriesForSzs() {
+          let entries = SzsArchive.cloneEntries(this.currentArchiveEntries);
+          let kmpPath = this.currentArchiveKmpPath != null ? this.currentArchiveKmpPath : SzsArchive.findPath(entries, "course.kmp");
+          if (kmpPath == null)
+            kmpPath = "course.kmp";
+          entries.set(normalizeArchivePath(kmpPath), this.getCurrentKmpStorageBytes());
+          let kclPath = this.currentArchiveKclPath != null ? this.currentArchiveKclPath : SzsArchive.findPath(entries, "course.kcl");
+          if (kclPath == null && this.currentKclBytes != null)
+            kclPath = "course.kcl";
+          if (kclPath != null && this.currentKclBytes != null) {
+            kclPath = normalizeArchivePath(kclPath);
+            if (!entries.has(kclPath))
+              entries.set(kclPath, new Uint8Array(this.currentKclBytes));
+          }
+          return entries;
+        }
+        async writeBytesToHandle(fileHandle, bytes) {
+          const writable = await fileHandle.createWritable();
+          await writable.write(new Uint8Array(bytes));
+          await writable.close();
+        }
         buildKmpFileTypeFilter() {
           return {
             description: "KMP Files (*.kmp)",
@@ -8353,8 +8738,48 @@ var KmpEditorWeb = (() => {
             accept: { "application/octet-stream": [".obj", ".brres", ".kcl"] }
           };
         }
+        buildSzsFileTypeFilter() {
+          return {
+            description: "Mario Kart Wii archive (*.szs)",
+            accept: { "application/octet-stream": [".szs"] }
+          };
+        }
         getKmpDownloadName() {
-          return this.currentKmpFilename == null ? "course.kmp" : this.currentKmpFilename;
+          if (this.currentKmpFilename == null)
+            return "course.kmp";
+          let name = this.currentKmpFilename;
+          if (name.includes("/"))
+            name = name.substring(name.lastIndexOf("/") + 1);
+          return name;
+        }
+        getSzsDownloadName() {
+          if (this.currentArchiveSourceName != null && this.currentArchiveSourceName.toLowerCase().endsWith(".szs"))
+            return this.currentArchiveSourceName;
+          let base = "track.szs";
+          if (this.currentKmpFilename != null) {
+            let simple = this.currentKmpFilename;
+            if (simple.includes("/"))
+              simple = simple.substring(simple.lastIndexOf("/") + 1);
+            if (simple.toLowerCase().endsWith(".kmp"))
+              simple = simple.substring(0, simple.length - 4) + ".szs";
+            else if (!simple.toLowerCase().endsWith(".szs"))
+              simple += ".szs";
+            base = simple;
+          }
+          return base;
+        }
+        askSaveAsFormat() {
+          let defaultFormat = this.currentArchiveEntries != null ? "szs" : "kmp";
+          let answer = window.prompt("Save format: type 'szs' for full archive, or 'kmp' for only KMP.", defaultFormat);
+          if (answer == null)
+            return null;
+          answer = answer.trim().toLowerCase();
+          if (answer == "szs")
+            return "szs";
+          if (answer == "kmp")
+            return "kmp";
+          window.alert("Invalid format. Please type exactly 'szs' or 'kmp'.");
+          return null;
         }
         downloadBytes(bytes, filename) {
           const blob = new Blob([new Uint8Array(bytes)], { type: "application/octet-stream" });
@@ -8379,6 +8804,7 @@ var KmpEditorWeb = (() => {
           panel.addSpacer(null);
           panel.addButton(null, "Load KMP", () => this.askOpenKmp());
           panel.addButton(null, "Load Track Folder", () => this.askOpenTrackFolder());
+          panel.addButton(null, "Import .szs", () => this.askImportSzs());
           panel.addButton(null, "Load Model", () => this.openCustomModel());
           panel.addButton(null, "(5) Toggle Projection", () => this.cfg.useOrthoProjection = !this.cfg.useOrthoProjection);
           panel.addButton(null, "Center view", () => this.viewer.centerView());
@@ -8580,6 +9006,11 @@ var KmpEditorWeb = (() => {
           this.currentKmpFilename = null;
           this.currentKmpFileHandle = null;
           this.currentDirectoryHandle = null;
+          this.currentSzsFileHandle = null;
+          this.currentArchiveEntries = null;
+          this.currentArchiveKmpPath = null;
+          this.currentArchiveKclPath = null;
+          this.currentArchiveSourceName = null;
           this.currentKmpData = new KmpData();
           this.currentNotSaved = false;
           this.cfg.isBattleTrack = false;
@@ -8612,6 +9043,45 @@ var KmpEditorWeb = (() => {
             return;
           await this.openKmpFromBytes(file.name, new Uint8Array(await file.arrayBuffer()));
         }
+        async askImportSzs() {
+          if (!await this.askSaveChanges())
+            return;
+          if (window.showOpenFilePicker != null) {
+            const handle = await this.pickFileHandle({
+              multiple: false,
+              types: [this.buildSzsFileTypeFilter()]
+            });
+            if (handle == null)
+              return;
+            await this.openSzsFromBytes(handle.name, await this.readHandleBytes(handle), handle);
+            return;
+          }
+          const file = await this.pickSingleFileFromInput(".szs");
+          if (file == null)
+            return;
+          await this.openSzsFromBytes(file.name, new Uint8Array(await file.arrayBuffer()));
+        }
+        async openSzsFromBytes(filename, bytes, fileHandle = null) {
+          try {
+            const parsed = SzsArchive.parse(bytes);
+            const kmpPath = SzsArchive.findPath(parsed.entries, "course.kmp");
+            if (kmpPath == null)
+              throw "szs: course.kmp was not found in the archive";
+            const kclPath = SzsArchive.findPath(parsed.entries, "course.kcl");
+            await this.openKmpFromBytes(filename + "/" + kmpPath, parsed.entries.get(kmpPath), {
+              kclBytes: kclPath == null ? null : parsed.entries.get(kclPath),
+              kclFilename: kclPath == null ? null : filename + "/" + kclPath,
+              szsHandle: fileHandle,
+              archiveEntries: parsed.entries,
+              archiveKmpPath: kmpPath,
+              archiveKclPath: kclPath,
+              archiveSourceName: filename
+            });
+          } catch (e) {
+            console.error(e);
+            window.alert("SZS import error!\n\n" + e.toString());
+          }
+        }
         async askOpenTrackFolder() {
           if (!await this.askSaveChanges())
             return;
@@ -8619,45 +9089,50 @@ var KmpEditorWeb = (() => {
             const directoryHandle = await this.pickDirectoryHandle();
             if (directoryHandle == null)
               return;
-            const kmpFile = await this.readFileBytesFromDirectory(directoryHandle, "course.kmp");
-            if (kmpFile == null) {
+            const archiveEntries2 = await this.readAllFilesFromDirectoryHandle(directoryHandle);
+            const kmpPath2 = SzsArchive.findPath(archiveEntries2, "course.kmp");
+            if (kmpPath2 == null) {
               window.alert("No course.kmp was found in the selected folder.");
               return;
             }
-            const kclFile = await this.readFileBytesFromDirectory(directoryHandle, "course.kcl");
-            await this.openKmpFromBytes(directoryHandle.name + "/course.kmp", kmpFile.bytes, {
-              kmpHandle: kmpFile.fileHandle,
+            const kclPath2 = SzsArchive.findPath(archiveEntries2, "course.kcl");
+            await this.openKmpFromBytes(directoryHandle.name + "/" + kmpPath2, archiveEntries2.get(kmpPath2), {
               directoryHandle,
-              kclBytes: kclFile == null ? null : kclFile.bytes,
-              kclFilename: kclFile == null ? null : directoryHandle.name + "/course.kcl",
-              kclHandle: kclFile == null ? null : kclFile.fileHandle
+              kclBytes: kclPath2 == null ? null : archiveEntries2.get(kclPath2),
+              kclFilename: kclPath2 == null ? null : directoryHandle.name + "/" + kclPath2,
+              archiveEntries: archiveEntries2,
+              archiveKmpPath: kmpPath2,
+              archiveKclPath: kclPath2,
+              archiveSourceName: directoryHandle.name
             });
             return;
           }
           const files = await this.pickSingleFileFromInput("", true);
           if (files == null || files.length <= 0)
             return;
-          let courseKmpFile = null;
-          let courseKclFile = null;
+          let archiveEntries = /* @__PURE__ */ new Map();
           for (const file of files) {
-            const relativePath = file.webkitRelativePath || file.name;
-            const lowered = relativePath.toLowerCase();
-            if (lowered.endsWith("/course.kmp") || lowered === "course.kmp")
-              courseKmpFile = file;
-            else if (lowered.endsWith("/course.kcl") || lowered === "course.kcl")
-              courseKclFile = file;
+            let relativePath = normalizeArchivePath(file.webkitRelativePath || file.name);
+            let parts = relativePath.split("/");
+            if (parts.length > 1)
+              relativePath = parts.slice(1).join("/");
+            archiveEntries.set(relativePath, new Uint8Array(await file.arrayBuffer()));
           }
-          if (courseKmpFile == null) {
+          const kmpPath = SzsArchive.findPath(archiveEntries, "course.kmp");
+          if (kmpPath == null) {
             window.alert("No course.kmp was found in the selected folder.");
             return;
           }
-          const folderPath = courseKmpFile.webkitRelativePath || courseKmpFile.name;
-          const folderName = folderPath.includes("/") ? folderPath.split("/")[0] : "track";
-          const kmpBytes = new Uint8Array(await courseKmpFile.arrayBuffer());
-          const kclBytes = courseKclFile == null ? null : new Uint8Array(await courseKclFile.arrayBuffer());
-          await this.openKmpFromBytes(folderName + "/course.kmp", kmpBytes, {
-            kclBytes,
-            kclFilename: kclBytes == null ? null : folderName + "/course.kcl"
+          const firstPath = normalizeArchivePath(files[0].webkitRelativePath || files[0].name);
+          const folderName = firstPath.includes("/") ? firstPath.split("/")[0] : "track";
+          const kclPath = SzsArchive.findPath(archiveEntries, "course.kcl");
+          await this.openKmpFromBytes(folderName + "/" + kmpPath, archiveEntries.get(kmpPath), {
+            kclBytes: kclPath == null ? null : archiveEntries.get(kclPath),
+            kclFilename: kclPath == null ? null : folderName + "/" + kclPath,
+            archiveEntries,
+            archiveKmpPath: kmpPath,
+            archiveKclPath: kclPath,
+            archiveSourceName: folderName
           });
         }
         async openKmpFromBytes(filename, bytes, source = {}) {
@@ -8667,6 +9142,11 @@ var KmpEditorWeb = (() => {
             this.currentKmpFilename = normalizeFilename(filename);
             this.currentKmpFileHandle = source.kmpHandle == null ? null : source.kmpHandle;
             this.currentDirectoryHandle = source.directoryHandle == null ? null : source.directoryHandle;
+            this.currentSzsFileHandle = source.szsHandle == null ? null : source.szsHandle;
+            this.currentArchiveEntries = source.archiveEntries == null ? null : SzsArchive.cloneEntries(source.archiveEntries);
+            this.currentArchiveKmpPath = source.archiveKmpPath == null ? null : normalizeArchivePath(source.archiveKmpPath);
+            this.currentArchiveKclPath = source.archiveKclPath == null ? null : normalizeArchivePath(source.archiveKclPath);
+            this.currentArchiveSourceName = source.archiveSourceName == null ? null : source.archiveSourceName;
             this.currentKmpData = KmpData.convertToWorkingFormat(KmpData.load(bytes));
             this.currentNotSaved = false;
             this.cfg.isBattleTrack = this.currentKmpData.isBattleTrack;
@@ -8693,14 +9173,16 @@ var KmpEditorWeb = (() => {
           }
         }
         async saveKmp(filename) {
+          if (this.currentSzsFileHandle != null && this.currentArchiveEntries != null)
+            return await this.saveSzsToHandle(this.currentSzsFileHandle);
+          if (this.currentArchiveEntries != null && this.currentKmpFileHandle == null)
+            return await this.saveKmpAs();
           if (this.currentKmpFileHandle == null && filename == null)
             return await this.saveKmpAs();
           try {
-            const bytes = this.currentKmpData.convertToStorageFormat(this.cfg.isBattleTrack);
+            const bytes = this.getCurrentKmpStorageBytes();
             if (this.currentKmpFileHandle != null) {
-              const writable = await this.currentKmpFileHandle.createWritable();
-              await writable.write(new Uint8Array(bytes));
-              await writable.close();
+              await this.writeBytesToHandle(this.currentKmpFileHandle, bytes);
               this.currentKmpFilename = normalizeFilename(this.currentKmpFileHandle.name);
             } else {
               const outName = normalizeFilename(filename || this.getKmpDownloadName());
@@ -8718,6 +9200,14 @@ var KmpEditorWeb = (() => {
           }
         }
         async saveKmpAs() {
+          let format = this.askSaveAsFormat();
+          if (format == null)
+            return false;
+          if (format == "szs")
+            return await this.saveSzsAs();
+          return await this.saveKmpAsKmp();
+        }
+        async saveKmpAsKmp() {
           if (window.showSaveFilePicker != null) {
             try {
               const filename = this.getKmpDownloadName();
@@ -8738,6 +9228,52 @@ var KmpEditorWeb = (() => {
             }
           }
           return await this.saveKmp(this.getKmpDownloadName());
+        }
+        async saveSzsToHandle(fileHandle) {
+          try {
+            let bytes = SzsArchive.make(this.getCurrentArchiveEntriesForSzs(), true);
+            await this.writeBytesToHandle(fileHandle, bytes);
+            this.currentSzsFileHandle = fileHandle;
+            this.currentArchiveSourceName = fileHandle.name;
+            this.currentNotSaved = false;
+            this.savedUndoSlot = this.undoPointer;
+            this.refreshPanels();
+            return true;
+          } catch (e) {
+            console.error(e);
+            window.alert("SZS save error!\n\n" + e);
+            return false;
+          }
+        }
+        async saveSzsAs() {
+          try {
+            let bytes = SzsArchive.make(this.getCurrentArchiveEntriesForSzs(), true);
+            if (window.showSaveFilePicker != null) {
+              const filename = this.getSzsDownloadName();
+              const suggestedName = filename.includes("/") ? filename.substring(filename.lastIndexOf("/") + 1) : filename;
+              const handle = await window.showSaveFilePicker({
+                suggestedName,
+                types: [this.buildSzsFileTypeFilter()]
+              });
+              if (handle == null)
+                return false;
+              await this.writeBytesToHandle(handle, bytes);
+              this.currentSzsFileHandle = handle;
+              this.currentArchiveSourceName = handle.name;
+            } else {
+              this.downloadBytes(bytes, this.getSzsDownloadName());
+            }
+            this.currentNotSaved = false;
+            this.savedUndoSlot = this.undoPointer;
+            this.refreshPanels();
+            return true;
+          } catch (e) {
+            if (e.name === "AbortError")
+              return false;
+            console.error(e);
+            window.alert("SZS save error!\n\n" + e);
+            return false;
+          }
         }
         setDefaultModel() {
           let model = new ModelBuilder().addCube(-5e3, -5e3, -3, 5e3, 5e3, 3).calculateNormals();

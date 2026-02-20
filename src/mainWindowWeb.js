@@ -2,6 +2,7 @@ const { Viewer } = require("./viewer/viewer.js")
 const { ModelBuilder } = require("./util/modelBuilder.js")
 const { KmpData } = require("./util/kmpData.js")
 const { KclLoader, collisionTypeData } = require("./util/kclLoader.js")
+const { SzsArchive, normalizeArchivePath } = require("./util/szs.js")
 
 
 let gMainWindow = null
@@ -50,10 +51,16 @@ class MainWindow
 		this.currentKclFileHandle = null
 		this.currentKclBytes = null
 		this.currentModelFileHandle = null
+		this.currentSzsFileHandle = null
+		this.currentArchiveEntries = null
+		this.currentArchiveKmpPath = null
+		this.currentArchiveKclPath = null
+		this.currentArchiveSourceName = null
 
 		document.body.onresize = () => this.onResize()
 		window.addEventListener("beforeunload", (ev) => this.onClose(ev))
 		this.bindToolbar()
+		this.setupDragAndDropSzsImport()
 		
 		// To prevent strange bug with the browser undoing/redoing changes in destroyed input elements
 		document.body.onkeydown = (ev) =>
@@ -363,11 +370,57 @@ class MainWindow
 		bind("btnNewKmp", () => this.newKmp())
 		bind("btnOpenKmp", () => this.askOpenKmp())
 		bind("btnOpenTrackFolder", () => this.askOpenTrackFolder())
+		bind("btnImportSzs", () => this.askImportSzs())
 		bind("btnSaveKmp", () => this.saveKmp(this.currentKmpFilename))
 		bind("btnSaveKmpAs", () => this.saveKmpAs())
 		bind("btnOpenModel", () => this.openCustomModel())
 		bind("btnUndo", () => { this.undo(); return Promise.resolve() })
 		bind("btnRedo", () => { this.redo(); return Promise.resolve() })
+	}
+
+
+	setupDragAndDropSzsImport()
+	{
+		const hasSzsFile = (dataTransfer) =>
+		{
+			if (dataTransfer == null || dataTransfer.files == null)
+				return false
+			for (const file of dataTransfer.files)
+			{
+				if ((file.name || "").toLowerCase().endsWith(".szs"))
+					return true
+			}
+			return false
+		}
+
+		window.addEventListener("dragover", (ev) =>
+		{
+			if (!hasSzsFile(ev.dataTransfer))
+				return
+
+			ev.preventDefault()
+			ev.dataTransfer.dropEffect = "copy"
+		})
+
+		window.addEventListener("drop", async (ev) =>
+		{
+			if (!hasSzsFile(ev.dataTransfer))
+				return
+
+			ev.preventDefault()
+			if (!await this.askSaveChanges())
+				return
+
+			for (const file of ev.dataTransfer.files)
+			{
+				if (!(file.name || "").toLowerCase().endsWith(".szs"))
+					continue
+
+				const bytes = new Uint8Array(await file.arrayBuffer())
+				await this.openSzsFromBytes(file.name, bytes)
+				break
+			}
+		})
 	}
 
 
@@ -466,6 +519,66 @@ class MainWindow
 	}
 
 
+	async readAllFilesFromDirectoryHandle(directoryHandle, prefix = "")
+	{
+		let entries = new Map()
+
+		for await (const [name, handle] of directoryHandle.entries())
+		{
+			const localPath = (prefix == "" ? name : prefix + "/" + name)
+			if (handle.kind == "directory")
+			{
+				const childEntries = await this.readAllFilesFromDirectoryHandle(handle, localPath)
+				for (const [childPath, childBytes] of childEntries)
+					entries.set(childPath, childBytes)
+			}
+			else if (handle.kind == "file")
+			{
+				entries.set(localPath, await this.readHandleBytes(handle))
+			}
+		}
+
+		return entries
+	}
+
+
+	getCurrentKmpStorageBytes()
+	{
+		return new Uint8Array(this.currentKmpData.convertToStorageFormat(this.cfg.isBattleTrack))
+	}
+
+
+	getCurrentArchiveEntriesForSzs()
+	{
+		let entries = SzsArchive.cloneEntries(this.currentArchiveEntries)
+		let kmpPath = (this.currentArchiveKmpPath != null ? this.currentArchiveKmpPath : SzsArchive.findPath(entries, "course.kmp"))
+		if (kmpPath == null)
+			kmpPath = "course.kmp"
+
+		entries.set(normalizeArchivePath(kmpPath), this.getCurrentKmpStorageBytes())
+
+		let kclPath = (this.currentArchiveKclPath != null ? this.currentArchiveKclPath : SzsArchive.findPath(entries, "course.kcl"))
+		if (kclPath == null && this.currentKclBytes != null)
+			kclPath = "course.kcl"
+		if (kclPath != null && this.currentKclBytes != null)
+		{
+			kclPath = normalizeArchivePath(kclPath)
+			if (!entries.has(kclPath))
+				entries.set(kclPath, new Uint8Array(this.currentKclBytes))
+		}
+
+		return entries
+	}
+
+
+	async writeBytesToHandle(fileHandle, bytes)
+	{
+		const writable = await fileHandle.createWritable()
+		await writable.write(new Uint8Array(bytes))
+		await writable.close()
+	}
+
+
 	buildKmpFileTypeFilter()
 	{
 		return {
@@ -484,9 +597,63 @@ class MainWindow
 	}
 
 
+	buildSzsFileTypeFilter()
+	{
+		return {
+			description: "Mario Kart Wii archive (*.szs)",
+			accept: { "application/octet-stream": [".szs"] }
+		}
+	}
+
+
 	getKmpDownloadName()
 	{
-		return (this.currentKmpFilename == null ? "course.kmp" : this.currentKmpFilename)
+		if (this.currentKmpFilename == null)
+			return "course.kmp"
+
+		let name = this.currentKmpFilename
+		if (name.includes("/"))
+			name = name.substring(name.lastIndexOf("/") + 1)
+		return name
+	}
+
+
+	getSzsDownloadName()
+	{
+		if (this.currentArchiveSourceName != null && this.currentArchiveSourceName.toLowerCase().endsWith(".szs"))
+			return this.currentArchiveSourceName
+
+		let base = "track.szs"
+		if (this.currentKmpFilename != null)
+		{
+			let simple = this.currentKmpFilename
+			if (simple.includes("/"))
+				simple = simple.substring(simple.lastIndexOf("/") + 1)
+			if (simple.toLowerCase().endsWith(".kmp"))
+				simple = simple.substring(0, simple.length - 4) + ".szs"
+			else if (!simple.toLowerCase().endsWith(".szs"))
+				simple += ".szs"
+			base = simple
+		}
+		return base
+	}
+
+
+	askSaveAsFormat()
+	{
+		let defaultFormat = (this.currentArchiveEntries != null ? "szs" : "kmp")
+		let answer = window.prompt("Save format: type 'szs' for full archive, or 'kmp' for only KMP.", defaultFormat)
+		if (answer == null)
+			return null
+
+		answer = answer.trim().toLowerCase()
+		if (answer == "szs")
+			return "szs"
+		if (answer == "kmp")
+			return "kmp"
+
+		window.alert("Invalid format. Please type exactly 'szs' or 'kmp'.")
+		return null
 	}
 
 
@@ -515,11 +682,12 @@ class MainWindow
 		panel.addText(null, "<strong>Mouse Wheel:</strong> Zoom")
 		panel.addText(null, "<strong>Double Right Click:</strong> Focus Camera")
 		panel.addSpacer(null)
-		//panel.addButton(null, "Load course_model.brres", () => this.openCourseBrres())
-		//panel.addButton(null, "Load course.kcl", () => this.openCourseKcl())
-		panel.addButton(null, "Load KMP", () => this.askOpenKmp())
-		panel.addButton(null, "Load Track Folder", () => this.askOpenTrackFolder())
-		panel.addButton(null, "Load Model", () => this.openCustomModel())
+			//panel.addButton(null, "Load course_model.brres", () => this.openCourseBrres())
+			//panel.addButton(null, "Load course.kcl", () => this.openCourseKcl())
+			panel.addButton(null, "Load KMP", () => this.askOpenKmp())
+			panel.addButton(null, "Load Track Folder", () => this.askOpenTrackFolder())
+			panel.addButton(null, "Import .szs", () => this.askImportSzs())
+			panel.addButton(null, "Load Model", () => this.openCustomModel())
 		panel.addButton(null, "(5) Toggle Projection", () => this.cfg.useOrthoProjection = !this.cfg.useOrthoProjection)
 		panel.addButton(null, "Center view", () => this.viewer.centerView())
 		panel.addSlider(null, "Shading", 0, 1, this.cfg.shadingFactor, 0.05, (x) => this.cfg.shadingFactor = x)
@@ -733,6 +901,11 @@ class MainWindow
 		this.currentKmpFilename = null
 		this.currentKmpFileHandle = null
 		this.currentDirectoryHandle = null
+		this.currentSzsFileHandle = null
+		this.currentArchiveEntries = null
+		this.currentArchiveKmpPath = null
+		this.currentArchiveKclPath = null
+		this.currentArchiveSourceName = null
 		this.currentKmpData = new KmpData()
 		this.currentNotSaved = false
 		this.cfg.isBattleTrack = false
@@ -776,6 +949,62 @@ class MainWindow
 
 		await this.openKmpFromBytes(file.name, new Uint8Array(await file.arrayBuffer()))
 	}
+
+
+	async askImportSzs()
+	{
+		if (!await this.askSaveChanges())
+			return
+
+		if (window.showOpenFilePicker != null)
+		{
+			const handle = await this.pickFileHandle({
+				multiple: false,
+				types: [this.buildSzsFileTypeFilter()]
+			})
+
+			if (handle == null)
+				return
+
+			await this.openSzsFromBytes(handle.name, await this.readHandleBytes(handle), handle)
+			return
+		}
+
+		const file = await this.pickSingleFileFromInput(".szs")
+		if (file == null)
+			return
+
+		await this.openSzsFromBytes(file.name, new Uint8Array(await file.arrayBuffer()))
+	}
+
+
+	async openSzsFromBytes(filename, bytes, fileHandle = null)
+	{
+		try
+		{
+			const parsed = SzsArchive.parse(bytes)
+			const kmpPath = SzsArchive.findPath(parsed.entries, "course.kmp")
+			if (kmpPath == null)
+				throw "szs: course.kmp was not found in the archive"
+
+			const kclPath = SzsArchive.findPath(parsed.entries, "course.kcl")
+
+			await this.openKmpFromBytes(filename + "/" + kmpPath, parsed.entries.get(kmpPath), {
+				kclBytes: (kclPath == null ? null : parsed.entries.get(kclPath)),
+				kclFilename: (kclPath == null ? null : filename + "/" + kclPath),
+				szsHandle: fileHandle,
+				archiveEntries: parsed.entries,
+				archiveKmpPath: kmpPath,
+				archiveKclPath: kclPath,
+				archiveSourceName: filename
+			})
+		}
+		catch (e)
+		{
+			console.error(e)
+			window.alert("SZS import error!\n\n" + e.toString())
+		}
+	}
 	
 	
 	async askOpenTrackFolder()
@@ -789,21 +1018,24 @@ class MainWindow
 			if (directoryHandle == null)
 				return
 
-			const kmpFile = await this.readFileBytesFromDirectory(directoryHandle, "course.kmp")
-			if (kmpFile == null)
+			const archiveEntries = await this.readAllFilesFromDirectoryHandle(directoryHandle)
+			const kmpPath = SzsArchive.findPath(archiveEntries, "course.kmp")
+			if (kmpPath == null)
 			{
 				window.alert("No course.kmp was found in the selected folder.")
 				return
 			}
 
-			const kclFile = await this.readFileBytesFromDirectory(directoryHandle, "course.kcl")
+			const kclPath = SzsArchive.findPath(archiveEntries, "course.kcl")
 
-			await this.openKmpFromBytes(directoryHandle.name + "/course.kmp", kmpFile.bytes, {
-				kmpHandle: kmpFile.fileHandle,
+			await this.openKmpFromBytes(directoryHandle.name + "/" + kmpPath, archiveEntries.get(kmpPath), {
 				directoryHandle,
-				kclBytes: (kclFile == null ? null : kclFile.bytes),
-				kclFilename: (kclFile == null ? null : directoryHandle.name + "/course.kcl"),
-				kclHandle: (kclFile == null ? null : kclFile.fileHandle)
+				kclBytes: (kclPath == null ? null : archiveEntries.get(kclPath)),
+				kclFilename: (kclPath == null ? null : directoryHandle.name + "/" + kclPath),
+				archiveEntries,
+				archiveKmpPath: kmpPath,
+				archiveKclPath: kclPath,
+				archiveSourceName: directoryHandle.name
 			})
 			return
 		}
@@ -812,32 +1044,35 @@ class MainWindow
 		if (files == null || files.length <= 0)
 			return
 
-		let courseKmpFile = null
-		let courseKclFile = null
+		let archiveEntries = new Map()
 		for (const file of files)
 		{
-			const relativePath = file.webkitRelativePath || file.name
-			const lowered = relativePath.toLowerCase()
-			if (lowered.endsWith("/course.kmp") || lowered === "course.kmp")
-				courseKmpFile = file
-			else if (lowered.endsWith("/course.kcl") || lowered === "course.kcl")
-				courseKclFile = file
+			let relativePath = normalizeArchivePath(file.webkitRelativePath || file.name)
+			let parts = relativePath.split("/")
+			if (parts.length > 1)
+				relativePath = parts.slice(1).join("/")
+
+			archiveEntries.set(relativePath, new Uint8Array(await file.arrayBuffer()))
 		}
 
-		if (courseKmpFile == null)
+		const kmpPath = SzsArchive.findPath(archiveEntries, "course.kmp")
+		if (kmpPath == null)
 		{
 			window.alert("No course.kmp was found in the selected folder.")
 			return
 		}
 
-		const folderPath = (courseKmpFile.webkitRelativePath || courseKmpFile.name)
-		const folderName = (folderPath.includes("/") ? folderPath.split("/")[0] : "track")
-		const kmpBytes = new Uint8Array(await courseKmpFile.arrayBuffer())
-		const kclBytes = (courseKclFile == null ? null : new Uint8Array(await courseKclFile.arrayBuffer()))
+		const firstPath = normalizeArchivePath(files[0].webkitRelativePath || files[0].name)
+		const folderName = (firstPath.includes("/") ? firstPath.split("/")[0] : "track")
+		const kclPath = SzsArchive.findPath(archiveEntries, "course.kcl")
 
-		await this.openKmpFromBytes(folderName + "/course.kmp", kmpBytes, {
-			kclBytes,
-			kclFilename: (kclBytes == null ? null : folderName + "/course.kcl")
+		await this.openKmpFromBytes(folderName + "/" + kmpPath, archiveEntries.get(kmpPath), {
+			kclBytes: (kclPath == null ? null : archiveEntries.get(kclPath)),
+			kclFilename: (kclPath == null ? null : folderName + "/" + kclPath),
+			archiveEntries,
+			archiveKmpPath: kmpPath,
+			archiveKclPath: kclPath,
+			archiveSourceName: folderName
 		})
 	}
 
@@ -853,6 +1088,11 @@ class MainWindow
 			this.currentKmpFilename = normalizeFilename(filename)
 			this.currentKmpFileHandle = (source.kmpHandle == null ? null : source.kmpHandle)
 			this.currentDirectoryHandle = (source.directoryHandle == null ? null : source.directoryHandle)
+			this.currentSzsFileHandle = (source.szsHandle == null ? null : source.szsHandle)
+			this.currentArchiveEntries = (source.archiveEntries == null ? null : SzsArchive.cloneEntries(source.archiveEntries))
+			this.currentArchiveKmpPath = (source.archiveKmpPath == null ? null : normalizeArchivePath(source.archiveKmpPath))
+			this.currentArchiveKclPath = (source.archiveKclPath == null ? null : normalizeArchivePath(source.archiveKclPath))
+			this.currentArchiveSourceName = (source.archiveSourceName == null ? null : source.archiveSourceName)
 			this.currentKmpData = KmpData.convertToWorkingFormat(KmpData.load(bytes))
 			this.currentNotSaved = false
 			
@@ -890,18 +1130,22 @@ class MainWindow
 	
 	async saveKmp(filename)
 	{
+		if (this.currentSzsFileHandle != null && this.currentArchiveEntries != null)
+			return await this.saveSzsToHandle(this.currentSzsFileHandle)
+
+		if (this.currentArchiveEntries != null && this.currentKmpFileHandle == null)
+			return await this.saveKmpAs()
+
 		if (this.currentKmpFileHandle == null && filename == null)
 			return await this.saveKmpAs()
 		
 		try
 		{
-			const bytes = this.currentKmpData.convertToStorageFormat(this.cfg.isBattleTrack)
+			const bytes = this.getCurrentKmpStorageBytes()
 
 			if (this.currentKmpFileHandle != null)
 			{
-				const writable = await this.currentKmpFileHandle.createWritable()
-				await writable.write(new Uint8Array(bytes))
-				await writable.close()
+				await this.writeBytesToHandle(this.currentKmpFileHandle, bytes)
 				this.currentKmpFilename = normalizeFilename(this.currentKmpFileHandle.name)
 			}
 			else
@@ -926,6 +1170,19 @@ class MainWindow
 	
 	
 	async saveKmpAs()
+	{
+		let format = this.askSaveAsFormat()
+		if (format == null)
+			return false
+
+		if (format == "szs")
+			return await this.saveSzsAs()
+
+		return await this.saveKmpAsKmp()
+	}
+
+
+	async saveKmpAsKmp()
 	{
 		if (window.showSaveFilePicker != null)
 		{
@@ -954,6 +1211,72 @@ class MainWindow
 		}
 
 		return await this.saveKmp(this.getKmpDownloadName())
+	}
+
+
+	async saveSzsToHandle(fileHandle)
+	{
+		try
+		{
+			let bytes = SzsArchive.make(this.getCurrentArchiveEntriesForSzs(), true)
+			await this.writeBytesToHandle(fileHandle, bytes)
+
+			this.currentSzsFileHandle = fileHandle
+			this.currentArchiveSourceName = fileHandle.name
+			this.currentNotSaved = false
+			this.savedUndoSlot = this.undoPointer
+			this.refreshPanels()
+			return true
+		}
+		catch (e)
+		{
+			console.error(e)
+			window.alert("SZS save error!\n\n" + e)
+			return false
+		}
+	}
+
+
+	async saveSzsAs()
+	{
+		try
+		{
+			let bytes = SzsArchive.make(this.getCurrentArchiveEntriesForSzs(), true)
+			if (window.showSaveFilePicker != null)
+			{
+				const filename = this.getSzsDownloadName()
+				const suggestedName = (filename.includes("/") ? filename.substring(filename.lastIndexOf("/") + 1) : filename)
+				const handle = await window.showSaveFilePicker({
+					suggestedName,
+					types: [this.buildSzsFileTypeFilter()]
+				})
+
+				if (handle == null)
+					return false
+
+				await this.writeBytesToHandle(handle, bytes)
+				this.currentSzsFileHandle = handle
+				this.currentArchiveSourceName = handle.name
+			}
+			else
+			{
+				this.downloadBytes(bytes, this.getSzsDownloadName())
+			}
+
+			this.currentNotSaved = false
+			this.savedUndoSlot = this.undoPointer
+			this.refreshPanels()
+			return true
+		}
+		catch (e)
+		{
+			if (e.name === "AbortError")
+				return false
+
+			console.error(e)
+			window.alert("SZS save error!\n\n" + e)
+			return false
+		}
 	}
 	
 	
