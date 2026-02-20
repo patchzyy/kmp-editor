@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Lorenzi's KMP Editor</title>
+	<style>
+		:root
+		{
+			--toolbar-bg: #1f2933;
+			--toolbar-fg: #f4f7fb;
+			--panel-bg: #eef1f4;
+			--panel-border: #ced6de;
+			--app-bg: #c7d2db;
+		}
+
+		html, body
+		{
+			margin: 0;
+			border: 0;
+			padding: 0;
+			width: 100%;
+			height: 100%;
+			font-family: Segoe UI, Verdana, sans-serif;
+			overflow: hidden;
+			background: var(--app-bg);
+		}
+
+		#divToolbar
+		{
+			display: flex;
+			align-items: center;
+			gap: 0.5em;
+			padding: 0.45em 0.6em;
+			background: var(--toolbar-bg);
+			color: var(--toolbar-fg);
+			border-bottom: 1px solid #111820;
+			flex-wrap: wrap;
+		}
+
+		#divToolbar button
+		{
+			padding: 0.35em 0.6em;
+			font-size: 0.85rem;
+			cursor: pointer;
+		}
+
+		#lblFileStatus
+		{
+			margin-left: auto;
+			font-size: 0.82rem;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			max-width: 42vw;
+		}
+
+		#divGrid
+		{
+			width: 100%;
+			height: calc(100% - 2.55em);
+			display: grid;
+			grid-template-columns: 18em auto;
+			grid-template-rows: auto;
+		}
+
+		#divSidePanel
+		{
+			width: 100%;
+			grid-column: 1;
+			grid-row: 1;
+			background-color: var(--panel-bg);
+			border-right: 1px solid var(--panel-border);
+			font-size: 0.75em;
+			overflow-x: hidden;
+			overflow-y: auto;
+		}
+
+		#canvasMain
+		{
+			width: 100%;
+			height: 100%;
+			grid-column: 2;
+			grid-row: 1;
+			outline: none;
+		}
+
+		.panel
+		{
+			width: 100%;
+		}
+
+		.panelTitle
+		{
+			width: 100%;
+			height: 1.75em;
+		}
+
+		.panelContent
+		{
+			width: 100%;
+		}
+
+		.panelRowElement
+		{
+			width: 100%;
+			padding: 0.25em;
+		}
+
+		.panelGroupTitle
+		{
+			font-weight: bold;
+		}
+
+		.panelGroup
+		{
+			width: 100%;
+			margin: 0.25em;
+			padding: 0;
+		}
+
+		.panelCheckbox
+		{
+			margin-top: 0.2em;
+			margin-bottom: 0.05em;
+		}
+
+		.panelInputLabel
+		{
+			float: left;
+			width: 6em;
+			margin-top: 0.15em;
+			margin-right: 0.25em;
+			text-align: right;
+		}
+
+		.panelNumericInputLabel
+		{
+			float: left;
+			width: 6em;
+			margin-top: 0.15em;
+			margin-right: 0.25em;
+			text-align: right;
+			cursor: ns-resize;
+			user-select: none;
+		}
+
+		.panelNumericInput
+		{
+			width: 10em;
+		}
+
+		.panelSelect
+		{
+			width: 11em;
+		}
+
+		@media (max-width: 1100px)
+		{
+			#divGrid
+			{
+				grid-template-columns: 15em auto;
+			}
+
+			#lblFileStatus
+			{
+				max-width: 28vw;
+			}
+		}
+
+		@media (max-width: 800px)
+		{
+			#divGrid
+			{
+				grid-template-columns: 100%;
+				grid-template-rows: 42% 58%;
+			}
+
+			#divSidePanel
+			{
+				grid-column: 1;
+				grid-row: 1;
+				border-right: none;
+				border-bottom: 1px solid var(--panel-border);
+			}
+
+			#canvasMain
+			{
+				grid-column: 1;
+				grid-row: 2;
+			}
+
+			#lblFileStatus
+			{
+				margin-left: 0;
+				max-width: 100%;
+			}
+		}
+	</style>
+</head>
+<body>
+	<div id="divToolbar" role="toolbar" aria-label="File actions">
+		<button id="btnNewKmp" type="button" title="New (Ctrl/Cmd+N)">New</button>
+		<button id="btnOpenKmp" type="button" title="Open KMP (Ctrl/Cmd+O)">Open KMP</button>
+		<button id="btnOpenTrackFolder" type="button" title="Open track folder with course.kmp + course.kcl">Open Track Folder</button>
+		<button id="btnSaveKmp" type="button" title="Save (Ctrl/Cmd+S)">Save</button>
+		<button id="btnSaveKmpAs" type="button" title="Save As (Shift+Ctrl/Cmd+S)">Save As</button>
+		<button id="btnOpenModel" type="button" title="Load OBJ/BRRES/KCL">Open Model</button>
+		<button id="btnUndo" type="button" title="Undo (Ctrl/Cmd+Z)">Undo</button>
+		<button id="btnRedo" type="button" title="Redo (Shift+Ctrl/Cmd+Z)">Redo</button>
+		<div id="lblFileStatus" aria-live="polite">New File</div>
+	</div>
+
+	<div id="divGrid">
+		<div id="divSidePanel"></div>
+		<canvas id="canvasMain" tabindex="0"></canvas>
+	</div>
+
+	<script src="./app.js"></script>
+	<script>
+		window.addEventListener("load", function() {
+			KmpEditorWeb.main()
+		})
+	</script>
+</body>
+</html>

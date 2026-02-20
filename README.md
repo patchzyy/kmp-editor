@@ -33,4 +33,20 @@ npm install
 npm start
 ```
 
+## Running the web version
+
+To run as a website locally:
+
+```
+npm install
+npm run start:web
+```
+
+Then open `http://localhost:4173`.
+
+Notes:
+- `Open Track Folder` is the best parity flow for a full course folder (for example `G:\\zplTest\\RRBeta\\Tracks\\tracks\\47.d`).
+- `Open KMP` loads only the selected KMP file.
+- `Save` writes back directly when the browser supports the File System Access API; otherwise it downloads a `.kmp` file.
+
 ![Screenshot](/doc/screenshot1.png)

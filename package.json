@@ -4,13 +4,16 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "build:web": "node web/build.js",
+    "start:web": "npm run build:web && node web/serve.js",
     "dist": "electron-builder --win",
     "dist-unix": "electron-builder",
     "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
     "electron": "^32.2.7",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.12"
   },
   "build": {
     "appId": "com.hlorenzi.kmp-editor",
