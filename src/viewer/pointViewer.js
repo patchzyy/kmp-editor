@@ -20,6 +20,7 @@ class PointViewer
 		this.hoveringOverPoint = null
 		this.targetPos = null
 		this.ctrlIsHeld = false
+		this.pendingSingleSelection = null
 
 		this.lastAxisHotkey = ""
 		this.snapCollision = this.viewer.cfg.snapToCollision
@@ -84,6 +85,12 @@ class PointViewer
 				point.selected = false
 				point.moveOrigin = point.pos
 			}
+
+			if (point.hidden === undefined)
+				point.hidden = false
+
+			if (point.hidden)
+				point.selected = false
 			
 			point.renderer = new GfxNodeRendererTransform()
 				.attach(this.scene.root)
@@ -133,6 +140,9 @@ class PointViewer
 		let minDistToPoint = 1000000
 		for (let point of this.points().nodes)
 		{
+			if (this.isPointHidden(point))
+				continue
+
 			if (!includeSelected && point.selected)
 				continue
 			
@@ -154,12 +164,18 @@ class PointViewer
 		
 		return elem
 	}
+
+
+	isPointHidden(point)
+	{
+		return point.hidden === true
+	}
 	
 	
 	selectAll()
 	{
 		for (let point of this.points().nodes)
-			point.selected = true
+			point.selected = !this.isPointHidden(point)
 		
 		this.refreshPanels()
 	}
@@ -182,6 +198,45 @@ class PointViewer
 			this.unselectAll()
 		else
 			this.selectAll()
+	}
+
+
+	hideSelectedPoints()
+	{
+		let hasChange = false
+		for (let point of this.points().nodes)
+		{
+			if (!point.selected || this.isPointHidden(point))
+				continue
+
+			point.hidden = true
+			point.selected = false
+			hasChange = true
+		}
+
+		if (!hasChange)
+			return
+
+		this.refreshPanels()
+	}
+
+
+	unhideAllPoints()
+	{
+		let hasChange = false
+		for (let point of this.points().nodes)
+		{
+			if (!this.isPointHidden(point))
+				continue
+
+			point.hidden = false
+			hasChange = true
+		}
+
+		if (!hasChange)
+			return
+
+		this.refreshPanels()
 	}
 	
 	
@@ -296,6 +351,14 @@ class PointViewer
 			case "a":
 				this.toggleAllSelection()
 				return true
+
+			case "H":
+			case "h":
+				if (ev.altKey)
+					this.unhideAllPoints()
+				else
+					this.hideSelectedPoints()
+				return true
 			
 			case "Backspace":
 			case "Delete":
@@ -316,12 +379,17 @@ class PointViewer
 	
 	onMouseDown(ev, x, y, cameraPos, ray, hit, distToHit, mouse3DPos)
 	{
+		this.pendingSingleSelection = null
+
 		for (let point of this.points().nodes)
 			point.moveOrigin = point.pos
 		
 		let hoveringOverElem = this.getHoveringOverElement(cameraPos, ray, distToHit)
+		let hasMultiSelection = (this.points().nodes.filter(p => p.selected && !this.isPointHidden(p)).length > 1)
 		
-		if (ev.altKey || (!(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.selected)))
+		if (!(ev.altKey || ev.ctrlKey || ev.metaKey) && hasMultiSelection && hoveringOverElem != null && hoveringOverElem.selected)
+			this.pendingSingleSelection = hoveringOverElem
+		else if (ev.altKey || (!(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.selected)))
 			this.unselectAll()
 
 		if (ev.ctrlKey || ev.metaKey)
@@ -336,10 +404,11 @@ class PointViewer
 					alert("KMP error!\n\nMaximum number of points surpassed (" + this.points().maxNodes + ")")
 					return
 				}
-				let newPoint = this.points().addNode()
-				this.points().onCloneNode(newPoint, hoveringOverElem)
-				
-				this.refresh()
+					let newPoint = this.points().addNode()
+					this.points().onCloneNode(newPoint, hoveringOverElem)
+					newPoint.hidden = false
+					
+					this.refresh()
 				
 				newPoint.selected = true
 				this.targetPos = newPoint.moveOrigin.clone()
@@ -362,10 +431,11 @@ class PointViewer
 				alert("KMP error!\n\nMaximum number of points surpassed (" + this.points().maxNodes + ")")
 				return
 			}
-			let newPoint = this.points().addNode()
-			newPoint.pos = mouse3DPos
-			
-			this.refresh()
+				let newPoint = this.points().addNode()
+				newPoint.pos = mouse3DPos
+				newPoint.hidden = false
+				
+				this.refresh()
 			newPoint.selected = true
 			this.targetPos = newPoint.moveOrigin.clone()
 			this.viewer.setCursor("-webkit-grabbing")
@@ -475,6 +545,19 @@ class PointViewer
     onMouseUp(ev, x, y)
 	{
 		this.ctrlIsHeld = false
+
+		if (this.pendingSingleSelection != null)
+		{
+			let moved = (Math.abs(this.viewer.mouseMoveOffsetPixels.x) > 3 || Math.abs(this.viewer.mouseMoveOffsetPixels.y) > 3)
+			if (!moved)
+			{
+				for (let point of this.points().nodes)
+					point.selected = false
+				this.pendingSingleSelection.selected = true
+				this.refreshPanels()
+			}
+			this.pendingSingleSelection = null
+		}
 
 		if (this.lastAxisHotkey) {
 			this.lastAxisHotkey = ""

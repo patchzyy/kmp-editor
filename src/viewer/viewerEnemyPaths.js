@@ -147,6 +147,7 @@ class ViewerEnemyPaths extends PathViewer
 		for (let p = 0; p < this.data.enemyPoints.nodes.length; p++)
 		{
 			let point = this.data.enemyPoints.nodes[p]
+			let pointHidden = this.isPointHidden(point)
 			
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
@@ -156,20 +157,24 @@ class ViewerEnemyPaths extends PathViewer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor(p == 0 ? [0.6, 0, 0, 1] : useMushroom ? [1, 0.5, 0.95, 1] : [1, 0, 0, 1])
+				.setEnabled(!pointHidden)
 				
 			let sizeCircleScale = point.deviation * 50
 			point.rendererSizeCircle
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(sizeCircleScale, sizeCircleScale, sizeCircleScale))
 				.setDiffuseColor([1, 0.5, 0, 0.5])
+				.setEnabled(!pointHidden)
 				
 			for (let n = 0; n < point.next.length; n++)
 			{
-				let nextPos = point.next[n].node.pos
+				let nextPoint = point.next[n].node
+				let nextPos = nextPoint.pos
+				let pathVisible = (!pointHidden && !this.isPointHidden(nextPoint))
 				
 				let scale2 = Math.min(scale, this.viewer.getElementScale(nextPos))
 				
-				let requiresMushroom = (point.next[n].node.setting1 == 1)
+				let requiresMushroom = (nextPoint.setting1 == 1)
 				
 				let matrixScale = Mat4.scale(scale2, scale2, nextPos.sub(point.pos).magn())
 				let matrixAlign = Mat4.rotationFromTo(new Vec3(0, 0, 1), nextPos.sub(point.pos).normalize())
@@ -181,10 +186,12 @@ class ViewerEnemyPaths extends PathViewer
 				point.rendererOutgoingPaths[n]
 					.setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate)))
 					.setDiffuseColor(requiresMushroom ? [1, 0.5, 0.75, 1] : [1, 0.5, 0, 1])
+					.setEnabled(pathVisible)
 					
 				point.rendererOutgoingPathArrows[n]
 					.setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow)))
 					.setDiffuseColor([1, 0.75, 0, 1])
+					.setEnabled(pathVisible)
 			}
 		}
 		
@@ -196,6 +203,7 @@ class ViewerEnemyPaths extends PathViewer
 		for (let p = 0; p < this.data.enemyPoints.nodes.length; p++)
 		{
 			let point = this.data.enemyPoints.nodes[p]
+			let pointHidden = this.isPointHidden(point)
 			
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
@@ -203,7 +211,7 @@ class ViewerEnemyPaths extends PathViewer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([1, 0.5, 0.5, 1])
-				.setEnabled(point.selected)
+				.setEnabled(!pointHidden && point.selected)
 				
 			point.rendererSelectedCore
 				.setDiffuseColor(p == 0 ? [0.6, 0, 0, 1] : [1, 0, 0, 1])

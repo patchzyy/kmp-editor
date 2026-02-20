@@ -786,18 +786,20 @@ class ViewerObjects extends PointViewer
 	{
 		for (let point of this.data.objects.nodes)
 		{
+			let pointHidden = this.isPointHidden(point)
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
 			point.renderer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([1, 0, 1, 1])
+				.setEnabled(!pointHidden)
 				
 			point.rendererSelected
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([1, 0.5, 1, 1])
-				.setEnabled(point.selected)
+				.setEnabled(!pointHidden && point.selected)
 				
 			point.rendererSelectedCore
 				.setDiffuseColor([1, 0, 1, 1])
@@ -813,17 +815,17 @@ class ViewerObjects extends PointViewer
 			point.rendererDirection
 				.setCustomMatrix(matrixDirection)
 				.setDiffuseColor([1, 0.5, 1, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 				
 			point.rendererDirectionArrow
 				.setCustomMatrix(matrixDirection)
 				.setDiffuseColor([1, 0.35, 1, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 				
 			point.rendererDirectionUp
 				.setCustomMatrix(matrixDirection)
 				.setDiffuseColor([0.75, 0, 0.75, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 		}
 		
 		this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera())

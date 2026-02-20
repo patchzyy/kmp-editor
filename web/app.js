@@ -1321,6 +1321,7 @@ var KmpEditorWeb = (() => {
           this.hoveringOverPoint = null;
           this.targetPos = null;
           this.ctrlIsHeld = false;
+          this.pendingSingleSelection = null;
           this.lastAxisHotkey = "";
           this.snapCollision = this.viewer.cfg.snapToCollision;
           this.lockX = this.viewer.cfg.lockAxisX;
@@ -1350,6 +1351,10 @@ var KmpEditorWeb = (() => {
               point.selected = false;
               point.moveOrigin = point.pos;
             }
+            if (point.hidden === void 0)
+              point.hidden = false;
+            if (point.hidden)
+              point.selected = false;
             point.renderer = new GfxNodeRendererTransform().attach(this.scene.root).setModel(this.modelPoint).setMaterial(this.viewer.material);
             point.rendererSelected = new GfxNodeRendererTransform().attach(this.sceneAfter.root).setModel(this.modelPointSelection).setMaterial(this.viewer.materialUnshaded).setEnabled(false);
             point.rendererSelectedCore = new GfxNodeRenderer().attach(point.rendererSelected).setModel(this.modelPoint).setMaterial(this.viewer.material);
@@ -1368,6 +1373,8 @@ var KmpEditorWeb = (() => {
           let minDistToCamera = distToHit + 1e3;
           let minDistToPoint = 1e6;
           for (let point of this.points().nodes) {
+            if (this.isPointHidden(point))
+              continue;
             if (!includeSelected && point.selected)
               continue;
             let distToCamera = point.pos.sub(cameraPos).magn();
@@ -1383,9 +1390,12 @@ var KmpEditorWeb = (() => {
           }
           return elem;
         }
+        isPointHidden(point) {
+          return point.hidden === true;
+        }
         selectAll() {
           for (let point of this.points().nodes)
-            point.selected = true;
+            point.selected = !this.isPointHidden(point);
           this.refreshPanels();
         }
         unselectAll() {
@@ -1399,6 +1409,31 @@ var KmpEditorWeb = (() => {
             this.unselectAll();
           else
             this.selectAll();
+        }
+        hideSelectedPoints() {
+          let hasChange = false;
+          for (let point of this.points().nodes) {
+            if (!point.selected || this.isPointHidden(point))
+              continue;
+            point.hidden = true;
+            point.selected = false;
+            hasChange = true;
+          }
+          if (!hasChange)
+            return;
+          this.refreshPanels();
+        }
+        unhideAllPoints() {
+          let hasChange = false;
+          for (let point of this.points().nodes) {
+            if (!this.isPointHidden(point))
+              continue;
+            point.hidden = false;
+            hasChange = true;
+          }
+          if (!hasChange)
+            return;
+          this.refreshPanels();
         }
         deleteSelectedPoints() {
           let pointsToDelete = [];
@@ -1477,6 +1512,13 @@ var KmpEditorWeb = (() => {
             case "a":
               this.toggleAllSelection();
               return true;
+            case "H":
+            case "h":
+              if (ev.altKey)
+                this.unhideAllPoints();
+              else
+                this.hideSelectedPoints();
+              return true;
             case "Backspace":
             case "Delete":
             case "X":
@@ -1491,10 +1533,14 @@ var KmpEditorWeb = (() => {
           return false;
         }
         onMouseDown(ev, x, y, cameraPos, ray, hit, distToHit, mouse3DPos) {
+          this.pendingSingleSelection = null;
           for (let point of this.points().nodes)
             point.moveOrigin = point.pos;
           let hoveringOverElem = this.getHoveringOverElement(cameraPos, ray, distToHit);
-          if (ev.altKey || !(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.selected))
+          let hasMultiSelection = this.points().nodes.filter((p) => p.selected && !this.isPointHidden(p)).length > 1;
+          if (!(ev.altKey || ev.ctrlKey || ev.metaKey) && hasMultiSelection && hoveringOverElem != null && hoveringOverElem.selected)
+            this.pendingSingleSelection = hoveringOverElem;
+          else if (ev.altKey || !(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.selected))
             this.unselectAll();
           if (ev.ctrlKey || ev.metaKey)
             this.ctrlIsHeld = true;
@@ -1506,6 +1552,7 @@ var KmpEditorWeb = (() => {
               }
               let newPoint = this.points().addNode();
               this.points().onCloneNode(newPoint, hoveringOverElem);
+              newPoint.hidden = false;
               this.refresh();
               newPoint.selected = true;
               this.targetPos = newPoint.moveOrigin.clone();
@@ -1525,6 +1572,7 @@ var KmpEditorWeb = (() => {
             }
             let newPoint = this.points().addNode();
             newPoint.pos = mouse3DPos;
+            newPoint.hidden = false;
             this.refresh();
             newPoint.selected = true;
             this.targetPos = newPoint.moveOrigin.clone();
@@ -1598,6 +1646,16 @@ var KmpEditorWeb = (() => {
         }
         onMouseUp(ev, x, y) {
           this.ctrlIsHeld = false;
+          if (this.pendingSingleSelection != null) {
+            let moved = Math.abs(this.viewer.mouseMoveOffsetPixels.x) > 3 || Math.abs(this.viewer.mouseMoveOffsetPixels.y) > 3;
+            if (!moved) {
+              for (let point of this.points().nodes)
+                point.selected = false;
+              this.pendingSingleSelection.selected = true;
+              this.refreshPanels();
+            }
+            this.pendingSingleSelection = null;
+          }
           if (this.lastAxisHotkey) {
             this.lastAxisHotkey = "";
             this.viewer.cfg.snapToCollision = this.snapCollision;
@@ -1741,16 +1799,17 @@ var KmpEditorWeb = (() => {
         }
         drawAfterModel() {
           for (let point of this.data.startPoints.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0, 0, 1, 1]);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 0.5, 1, 1]).setEnabled(point.selected);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0, 0, 1, 1]).setEnabled(!pointHidden);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 0.5, 1, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor([0, 0, 1, 1]);
             let matrixScale = Mat4.scale(scale, scale / 1.5, scale / 1.5);
             let matrixDirection = Mat4.rotation(new Vec3(0, 0, 1), 90 * Math.PI / 180).mul(Mat4.rotation(new Vec3(1, 0, 0), point.rotation.x * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 0, 1), -point.rotation.y * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 1, 0), -point.rotation.z * Math.PI / 180)).mul(Mat4.translation(point.pos.x, point.pos.y, point.pos.z));
-            point.rendererDirection.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.75, 0.75, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionArrow.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0, 0, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionUp.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.25, 0.25, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererStartZone.setCustomMatrix(matrixDirection).setDiffuseColor([0.25, 0.25, 1, 0.5]).setEnabled(this.viewer.cfg.startPointsEnableZoneRender && !this.viewer.cfg.isBattleTrack && this.data.startPoints.nodes.indexOf(point) == 0);
+            point.rendererDirection.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.75, 0.75, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionArrow.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0, 0, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionUp.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.25, 0.25, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererStartZone.setCustomMatrix(matrixDirection).setDiffuseColor([0.25, 0.25, 1, 0.5]).setEnabled(!pointHidden && this.viewer.cfg.startPointsEnableZoneRender && !this.viewer.cfg.isBattleTrack && this.data.startPoints.nodes.indexOf(point) == 0);
           }
           this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera());
           this.sceneAfter.clearDepth(this.viewer.gl);
@@ -1784,6 +1843,7 @@ var KmpEditorWeb = (() => {
           this.targetPos = null;
           this.ctrlIsHeld = false;
           this.altIsHeld = false;
+          this.pendingSingleSelection = null;
           this.lastAxisHotkey = "";
           this.snapCollision = this.viewer.cfg.snapToCollision;
           this.lockX = this.viewer.cfg.lockAxisX;
@@ -1813,6 +1873,10 @@ var KmpEditorWeb = (() => {
               point.selected = false;
               point.moveOrigin = point.pos;
             }
+            if (point.hidden === void 0)
+              point.hidden = false;
+            if (point.hidden)
+              point.selected = false;
             point.renderer = new GfxNodeRendererTransform().attach(this.scene.root).setModel(this.modelPoint).setMaterial(this.viewer.material);
             point.rendererSelected = new GfxNodeRendererTransform().attach(this.sceneAfter.root).setModel(this.modelPointSelection).setMaterial(this.viewer.materialUnshaded).setEnabled(false);
             point.rendererSelectedCore = new GfxNodeRenderer().attach(point.rendererSelected).setModel(this.modelPoint).setMaterial(this.viewer.material);
@@ -1837,6 +1901,8 @@ var KmpEditorWeb = (() => {
           let minDistToCamera = distToHit + 1e3;
           let minDistToPoint = 1e6;
           for (let point of this.points().nodes) {
+            if (this.isPointHidden(point))
+              continue;
             if (!includeSelected && point.selected)
               continue;
             let distToCamera = point.pos.sub(cameraPos).magn();
@@ -1852,9 +1918,12 @@ var KmpEditorWeb = (() => {
           }
           return elem;
         }
+        isPointHidden(point) {
+          return point.hidden === true;
+        }
         selectAll() {
           for (let point of this.points().nodes)
-            point.selected = true;
+            point.selected = !this.isPointHidden(point);
           this.refreshPanels();
         }
         unselectAll() {
@@ -1868,6 +1937,74 @@ var KmpEditorWeb = (() => {
             this.unselectAll();
           else
             this.selectAll();
+        }
+        hideSelectedPoints() {
+          let hasChange = false;
+          for (let point of this.points().nodes) {
+            if (!point.selected || this.isPointHidden(point))
+              continue;
+            point.hidden = true;
+            point.selected = false;
+            hasChange = true;
+          }
+          if (!hasChange)
+            return;
+          this.refreshPanels();
+        }
+        unhideAllPoints() {
+          let hasChange = false;
+          for (let point of this.points().nodes) {
+            if (!this.isPointHidden(point))
+              continue;
+            point.hidden = false;
+            hasChange = true;
+          }
+          if (!hasChange)
+            return;
+          this.refreshPanels();
+        }
+        findPathBetweenPoints(startPoint, endPoint) {
+          let queue = [startPoint];
+          let visited = /* @__PURE__ */ new Set([startPoint]);
+          let parent = /* @__PURE__ */ new Map([[startPoint, null]]);
+          while (queue.length > 0) {
+            let point = queue.shift();
+            if (point == endPoint)
+              break;
+            let neighbors = [];
+            for (let next of point.next)
+              neighbors.push(next.node);
+            for (let prev of point.prev)
+              neighbors.push(prev.node);
+            for (let neighbor of neighbors) {
+              if (neighbor == null || this.isPointHidden(neighbor) || visited.has(neighbor))
+                continue;
+              visited.add(neighbor);
+              parent.set(neighbor, point);
+              queue.push(neighbor);
+            }
+          }
+          if (!visited.has(endPoint))
+            return null;
+          let path = [];
+          let cur = endPoint;
+          while (cur != null) {
+            path.push(cur);
+            cur = parent.get(cur);
+          }
+          return path.reverse();
+        }
+        selectBetweenTwoSelectedPoints() {
+          let selectedPoints = this.points().nodes.filter((p) => p.selected && !this.isPointHidden(p));
+          if (selectedPoints.length != 2)
+            return false;
+          let path = this.findPathBetweenPoints(selectedPoints[0], selectedPoints[1]);
+          if (path == null)
+            return false;
+          for (let point of path)
+            point.selected = true;
+          this.refreshPanels();
+          return true;
         }
         deleteSelectedPoints() {
           let pointsToDelete = [];
@@ -1976,6 +2113,13 @@ var KmpEditorWeb = (() => {
             case "a":
               this.toggleAllSelection();
               return true;
+            case "H":
+            case "h":
+              if (ev.altKey)
+                this.unhideAllPoints();
+              else
+                this.hideSelectedPoints();
+              return true;
             case "Backspace":
             case "Delete":
             case "X":
@@ -1994,15 +2138,22 @@ var KmpEditorWeb = (() => {
             case "f":
               this.setSelectedAsFirstPoint();
               return true;
+            case "I":
+            case "i":
+              return this.selectBetweenTwoSelectedPoints();
           }
           return false;
         }
         onMouseDown(ev, x, y, cameraPos, ray, hit, distToHit, mouse3DPos) {
           this.linkingPoints = false;
+          this.pendingSingleSelection = null;
           for (let point of this.points().nodes)
             point.moveOrigin = point.pos;
           let hoveringOverElem = this.getHoveringOverElement(cameraPos, ray, distToHit);
-          if (ev.altKey || !(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.selected))
+          let hasMultiSelection = this.points().nodes.filter((p) => p.selected && !this.isPointHidden(p)).length > 1;
+          if (!(ev.altKey || ev.ctrlKey || ev.metaKey) && hasMultiSelection && hoveringOverElem != null && hoveringOverElem.selected)
+            this.pendingSingleSelection = hoveringOverElem;
+          else if (ev.altKey || !(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.selected))
             this.unselectAll();
           if (ev.ctrlKey || ev.metaKey)
             this.ctrlIsHeld = true;
@@ -2021,6 +2172,7 @@ var KmpEditorWeb = (() => {
               this.points().onCloneNode(newPoint, hoveringOverElem);
               newPoint.pos = hoveringOverElem.pos;
               newPoint.size = hoveringOverElem.size;
+              newPoint.hidden = false;
               this.points().linkNodes(hoveringOverElem, newPoint);
               this.refresh();
               newPoint.selected = true;
@@ -2043,6 +2195,7 @@ var KmpEditorWeb = (() => {
             }
             let newPoint = this.points().addNode();
             newPoint.pos = mouse3DPos;
+            newPoint.hidden = false;
             this.refresh();
             newPoint.selected = true;
             this.targetPos = newPoint.moveOrigin.clone();
@@ -2082,6 +2235,7 @@ var KmpEditorWeb = (() => {
               let newPoint = this.points().addNode();
               newPoint.pos = point.moveOrigin;
               newPoint.size = point.size;
+              newPoint.hidden = false;
               this.points().linkNodes(point, newPoint);
               this.refresh();
               point.selected = false;
@@ -2152,6 +2306,16 @@ var KmpEditorWeb = (() => {
         onMouseUp(ev, x, y) {
           this.ctrlIsHeld = false;
           this.altIsHeld = false;
+          if (this.pendingSingleSelection != null) {
+            let moved = Math.abs(this.viewer.mouseMoveOffsetPixels.x) > 3 || Math.abs(this.viewer.mouseMoveOffsetPixels.y) > 3;
+            if (!moved) {
+              for (let point of this.points().nodes)
+                point.selected = false;
+              this.pendingSingleSelection.selected = true;
+              this.refreshPanels();
+            }
+            this.pendingSingleSelection = null;
+          }
           if (this.lastAxisHotkey) {
             this.lastAxisHotkey = "";
             this.viewer.cfg.snapToCollision = this.snapCollision;
@@ -2338,22 +2502,25 @@ var KmpEditorWeb = (() => {
           let cameraPos = this.viewer.getCurrentCameraPosition();
           for (let p = 0; p < this.data.enemyPoints.nodes.length; p++) {
             let point = this.data.enemyPoints.nodes[p];
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
             let useMushroom = point.setting1 == 2;
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor(p == 0 ? [0.6, 0, 0, 1] : useMushroom ? [1, 0.5, 0.95, 1] : [1, 0, 0, 1]);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor(p == 0 ? [0.6, 0, 0, 1] : useMushroom ? [1, 0.5, 0.95, 1] : [1, 0, 0, 1]).setEnabled(!pointHidden);
             let sizeCircleScale = point.deviation * 50;
-            point.rendererSizeCircle.setTranslation(point.pos).setScaling(new Vec3(sizeCircleScale, sizeCircleScale, sizeCircleScale)).setDiffuseColor([1, 0.5, 0, 0.5]);
+            point.rendererSizeCircle.setTranslation(point.pos).setScaling(new Vec3(sizeCircleScale, sizeCircleScale, sizeCircleScale)).setDiffuseColor([1, 0.5, 0, 0.5]).setEnabled(!pointHidden);
             for (let n = 0; n < point.next.length; n++) {
-              let nextPos = point.next[n].node.pos;
+              let nextPoint = point.next[n].node;
+              let nextPos = nextPoint.pos;
+              let pathVisible = !pointHidden && !this.isPointHidden(nextPoint);
               let scale2 = Math.min(scale, this.viewer.getElementScale(nextPos));
-              let requiresMushroom = point.next[n].node.setting1 == 1;
+              let requiresMushroom = nextPoint.setting1 == 1;
               let matrixScale = Mat4.scale(scale2, scale2, nextPos.sub(point.pos).magn());
               let matrixAlign = Mat4.rotationFromTo(new Vec3(0, 0, 1), nextPos.sub(point.pos).normalize());
               let matrixTranslate = Mat4.translation(point.pos.x, point.pos.y, point.pos.z);
               let matrixScaleArrow = Mat4.scale(scale2, scale2, scale2);
               let matrixTranslateArrow = Mat4.translation(nextPos.x, nextPos.y, nextPos.z);
-              point.rendererOutgoingPaths[n].setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate))).setDiffuseColor(requiresMushroom ? [1, 0.5, 0.75, 1] : [1, 0.5, 0, 1]);
-              point.rendererOutgoingPathArrows[n].setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow))).setDiffuseColor([1, 0.75, 0, 1]);
+              point.rendererOutgoingPaths[n].setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate))).setDiffuseColor(requiresMushroom ? [1, 0.5, 0.75, 1] : [1, 0.5, 0, 1]).setEnabled(pathVisible);
+              point.rendererOutgoingPathArrows[n].setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow))).setDiffuseColor([1, 0.75, 0, 1]).setEnabled(pathVisible);
             }
           }
           if (this.viewer.cfg.enemyPathsEnableSizeRender)
@@ -2361,8 +2528,9 @@ var KmpEditorWeb = (() => {
           this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera());
           for (let p = 0; p < this.data.enemyPoints.nodes.length; p++) {
             let point = this.data.enemyPoints.nodes[p];
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.5, 0.5, 1]).setEnabled(point.selected);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.5, 0.5, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor(p == 0 ? [0.6, 0, 0, 1] : [1, 0, 0, 1]);
           }
           this.sceneAfter.clearDepth(this.viewer.gl);
@@ -2517,23 +2685,26 @@ var KmpEditorWeb = (() => {
           let cameraPos = this.viewer.getCurrentCameraPosition();
           for (let p = 0; p < this.data.itemPoints.nodes.length; p++) {
             let point = this.data.itemPoints.nodes[p];
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
             let bbillCantStop = (point.setting2 & 1) != 0;
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor(p == 0 ? [0, 0.4, 0, 1] : bbillCantStop ? [0.75, 0.75, 0.75, 1] : [0, 0.8, 0, 1]);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor(p == 0 ? [0, 0.4, 0, 1] : bbillCantStop ? [0.75, 0.75, 0.75, 1] : [0, 0.8, 0, 1]).setEnabled(!pointHidden);
             let sizeCircleScale = point.deviation * 50;
-            point.rendererSizeCircle.setTranslation(point.pos).setScaling(new Vec3(sizeCircleScale, sizeCircleScale, sizeCircleScale)).setDiffuseColor([0.25, 0.8, 0, 0.5]);
+            point.rendererSizeCircle.setTranslation(point.pos).setScaling(new Vec3(sizeCircleScale, sizeCircleScale, sizeCircleScale)).setDiffuseColor([0.25, 0.8, 0, 0.5]).setEnabled(!pointHidden);
             for (let n = 0; n < point.next.length; n++) {
-              let nextPos = point.next[n].node.pos;
+              let nextPoint = point.next[n].node;
+              let nextPos = nextPoint.pos;
+              let pathVisible = !pointHidden && !this.isPointHidden(nextPoint);
               let scale2 = Math.min(scale, this.viewer.getElementScale(nextPos));
-              let nextBbillCantStop = (point.next[n].node.setting2 & 1) != 0;
-              let lowPriority = (point.next[n].node.setting2 & 10) != 0;
+              let nextBbillCantStop = (nextPoint.setting2 & 1) != 0;
+              let lowPriority = (nextPoint.setting2 & 10) != 0;
               let matrixScale = Mat4.scale(scale2, scale2, nextPos.sub(point.pos).magn());
               let matrixAlign = Mat4.rotationFromTo(new Vec3(0, 0, 1), nextPos.sub(point.pos).normalize());
               let matrixTranslate = Mat4.translation(point.pos.x, point.pos.y, point.pos.z);
               let matrixScaleArrow = Mat4.scale(scale2, scale2, scale2);
               let matrixTranslateArrow = Mat4.translation(nextPos.x, nextPos.y, nextPos.z);
-              point.rendererOutgoingPaths[n].setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate))).setDiffuseColor(nextBbillCantStop ? [0.5, 0.5, 0.5, 1] : lowPriority ? [0.5, 1, 0.8, 1] : n != 0 ? [0.8, 1, 0.5, 1] : [0.5, 1, 0, 1]);
-              point.rendererOutgoingPathArrows[n].setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow))).setDiffuseColor(nextBbillCantStop ? [0.85, 0.85, 0.85, 1] : [0.1, 0.8, 0, 1]);
+              point.rendererOutgoingPaths[n].setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate))).setDiffuseColor(nextBbillCantStop ? [0.5, 0.5, 0.5, 1] : lowPriority ? [0.5, 1, 0.8, 1] : n != 0 ? [0.8, 1, 0.5, 1] : [0.5, 1, 0, 1]).setEnabled(pathVisible);
+              point.rendererOutgoingPathArrows[n].setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow))).setDiffuseColor(nextBbillCantStop ? [0.85, 0.85, 0.85, 1] : [0.1, 0.8, 0, 1]).setEnabled(pathVisible);
             }
           }
           if (this.viewer.cfg.enemyPathsEnableSizeRender)
@@ -2541,8 +2712,9 @@ var KmpEditorWeb = (() => {
           this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera());
           for (let p = 0; p < this.data.itemPoints.nodes.length; p++) {
             let point = this.data.itemPoints.nodes[p];
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.4, 1, 0.1, 1]).setEnabled(point.selected);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.4, 1, 0.1, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor(p == 0 ? [0, 0.4, 0, 1] : [0, 0.8, 0, 1]);
           }
           this.sceneAfter.clearDepth(this.viewer.gl);
@@ -2574,6 +2746,7 @@ var KmpEditorWeb = (() => {
           this.hoveringOverPoint = null;
           this.linkingPoints = false;
           this.multiSelect = false;
+          this.pendingSingleSelection = null;
           this.zTop = 0;
           this.zBottom = 0;
           this.modelPoint = new ModelBuilder().addSphere(-150, -150, -150, 150, 150, 150).calculateNormals().makeModel(viewer.gl);
@@ -2618,6 +2791,7 @@ var KmpEditorWeb = (() => {
           panel.addButton(null, "(A) Select/Unselect All", () => this.toggleAllSelection());
           panel.addButton(null, "(X) Delete Selected", () => this.deleteSelectedPoints());
           panel.addButton(null, "(U) Unlink Selected", () => this.unlinkSelectedPoints());
+          panel.addButton(null, "(I) Select In-Between 2 Selected", () => this.selectBetweenTwoSelectedPoints());
           panel.addButton(null, "(S) Toggle Show Loaded Checkpoints", () => this.toggleShowLoaded());
           panel.addButton(null, "(E) Clear Respawn Point Assignment", () => this.clearRespawnPoints());
           panel.addButton(null, "(R) Assign Selected Respawn Point", () => this.assignRespawnPoints());
@@ -2702,6 +2876,10 @@ var KmpEditorWeb = (() => {
               point.selected = [false, false];
               point.moveOrigin = [point.pos[0], point.pos[1]];
             }
+            if (point.hidden === void 0)
+              point.hidden = false;
+            if (point.hidden)
+              point.selected = [false, false];
             let renderer1 = new GfxNodeRendererTransform().attach(this.scene.root).setModel(this.modelPoint).setMaterial(this.viewer.material);
             let renderer2 = new GfxNodeRendererTransform().attach(this.scene.root).setModel(this.modelPoint).setMaterial(this.viewer.materialColor);
             point.renderer = [renderer1, renderer2];
@@ -2753,6 +2931,8 @@ var KmpEditorWeb = (() => {
           let minDistToPoint = 1e6;
           for (let which = 0; which < 2; which++) {
             for (let point of this.data.checkpointPoints.nodes) {
+              if (point.hidden === true)
+                continue;
               if (!includeSelected && point.selected[which])
                 continue;
               let distToCamera = point.pos[which].sub(cameraPos).magn();
@@ -2771,7 +2951,7 @@ var KmpEditorWeb = (() => {
         }
         selectAll() {
           for (let point of this.data.checkpointPoints.nodes)
-            point.selected = [true, true];
+            point.selected = point.hidden === true ? [false, false] : [true, true];
           this.refreshPanels();
         }
         unselectAll() {
@@ -2785,6 +2965,74 @@ var KmpEditorWeb = (() => {
             this.unselectAll();
           else
             this.selectAll();
+        }
+        hideSelectedPoints() {
+          let hasChange = false;
+          for (let point of this.data.checkpointPoints.nodes) {
+            if (point.hidden === true || !point.selected[0] && !point.selected[1])
+              continue;
+            point.hidden = true;
+            point.selected = [false, false];
+            hasChange = true;
+          }
+          if (!hasChange)
+            return;
+          this.refreshPanels();
+        }
+        unhideAllPoints() {
+          let hasChange = false;
+          for (let point of this.data.checkpointPoints.nodes) {
+            if (point.hidden !== true)
+              continue;
+            point.hidden = false;
+            hasChange = true;
+          }
+          if (!hasChange)
+            return;
+          this.refreshPanels();
+        }
+        findPathBetweenPoints(startPoint, endPoint) {
+          let queue = [startPoint];
+          let visited = /* @__PURE__ */ new Set([startPoint]);
+          let parent = /* @__PURE__ */ new Map([[startPoint, null]]);
+          while (queue.length > 0) {
+            let point = queue.shift();
+            if (point == endPoint)
+              break;
+            let neighbors = [];
+            for (let next of point.next)
+              neighbors.push(next.node);
+            for (let prev of point.prev)
+              neighbors.push(prev.node);
+            for (let neighbor of neighbors) {
+              if (neighbor == null || neighbor.hidden === true || visited.has(neighbor))
+                continue;
+              visited.add(neighbor);
+              parent.set(neighbor, point);
+              queue.push(neighbor);
+            }
+          }
+          if (!visited.has(endPoint))
+            return null;
+          let path = [];
+          let cur = endPoint;
+          while (cur != null) {
+            path.push(cur);
+            cur = parent.get(cur);
+          }
+          return path.reverse();
+        }
+        selectBetweenTwoSelectedPoints() {
+          let selectedPoints = this.data.checkpointPoints.nodes.filter((p) => p.hidden !== true && (p.selected[0] || p.selected[1]));
+          if (selectedPoints.length != 2)
+            return false;
+          let path = this.findPathBetweenPoints(selectedPoints[0], selectedPoints[1]);
+          if (path == null)
+            return false;
+          for (let point of path)
+            point.selected = [true, true];
+          this.refreshPanels();
+          return true;
         }
         deleteSelectedPoints() {
           let pointsToDelete = [];
@@ -2907,6 +3155,13 @@ var KmpEditorWeb = (() => {
             case "a":
               this.toggleAllSelection();
               return true;
+            case "H":
+            case "h":
+              if (ev.altKey)
+                this.unhideAllPoints();
+              else
+                this.hideSelectedPoints();
+              return true;
             case "Backspace":
             case "Delete":
             case "X":
@@ -2929,15 +3184,22 @@ var KmpEditorWeb = (() => {
             case "r":
               this.assignRespawnPoints();
               return true;
+            case "I":
+            case "i":
+              return this.selectBetweenTwoSelectedPoints();
           }
           return false;
         }
         onMouseDown(ev, x, y, cameraPos, ray, hit, distToHit, mouse3DPos) {
           this.linkingPoints = false;
+          this.pendingSingleSelection = null;
           for (let point of this.data.checkpointPoints.nodes)
             point.moveOrigin = [point.pos[0], point.pos[1]];
           let hoveringOverElem = this.getHoveringOverElement(cameraPos, ray, distToHit);
-          if (ev.altKey || !(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.point.selected[hoveringOverElem.which]))
+          let hasMultiSelection = this.data.checkpointPoints.nodes.filter((p) => p.hidden !== true && (p.selected[0] || p.selected[1])).length > 1;
+          if (!(ev.altKey || ev.ctrlKey || ev.metaKey) && hasMultiSelection && hoveringOverElem != null && hoveringOverElem.point.selected[hoveringOverElem.which])
+            this.pendingSingleSelection = hoveringOverElem;
+          else if (ev.altKey || !(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.point.selected[hoveringOverElem.which]))
             this.unselectAll();
           if (ev.ctrlKey || ev.metaKey)
             this.multiSelect = true;
@@ -3028,6 +3290,16 @@ var KmpEditorWeb = (() => {
         }
         onMouseUp(ev, x, y) {
           this.multiSelect = false;
+          if (this.pendingSingleSelection != null) {
+            let moved = Math.abs(this.viewer.mouseMoveOffsetPixels.x) > 3 || Math.abs(this.viewer.mouseMoveOffsetPixels.y) > 3;
+            if (!moved) {
+              for (let point of this.data.checkpointPoints.nodes)
+                point.selected = [false, false];
+              this.pendingSingleSelection.point.selected[this.pendingSingleSelection.which] = true;
+              this.refreshPanels();
+            }
+            this.pendingSingleSelection = null;
+          }
           if (this.viewer.mouseAction == "move") {
             if (this.linkingPoints) {
               let pointBeingLinked = this.data.checkpointPoints.nodes.find((p) => p.selected[0] || p.selected[1]);
@@ -3083,39 +3355,44 @@ var KmpEditorWeb = (() => {
           }
           for (let point of this.data.checkpointPoints.nodes) {
             let scales = [0, 0];
-            let prevIsRendered2 = point.prev.some((p) => p.node.isRendered);
+            let pointHidden = point.hidden === true;
+            let prevIsRendered = !pointHidden && point.prev.some((p) => p.node.isRendered && p.node.hidden !== true);
+            let pointVisible = !pointHidden && (point.isRendered || prevIsRendered);
             for (let which = 0; which < 2; which++) {
               let hovering = this.hoveringOverPoint != null && this.hoveringOverPoint.point == point && this.hoveringOverPoint.which == which;
               let scale = (hovering ? 1.5 : 1) * this.viewer.getElementScale(point.pos[which]);
               scales[which] = scale;
-              point.renderer[which].setTranslation(point.pos[which]).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 255 ? [1, 0, 1, 1] : [0, 0, 1, 1]).setEnabled(point.isRendered || prevIsRendered2);
+              point.renderer[which].setTranslation(point.pos[which]).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 255 ? [1, 0, 1, 1] : [0, 0, 1, 1]).setEnabled(pointVisible);
               for (let n = 0; n < point.next.length; n++) {
-                let nextPos = point.next[n].node.pos[which];
+                let nextPoint = point.next[n].node;
+                let nextPos = nextPoint.pos[which];
+                let nextVisible = nextPoint.hidden !== true && nextPoint.isRendered;
+                let linkVisible = pointVisible && nextVisible;
                 let scale2 = Math.min(scale, this.viewer.getElementScale(nextPos));
                 let matrixScale = Mat4.scale(scale2, scale2, nextPos.sub(point.pos[which]).magn());
                 let matrixAlign = Mat4.rotationFromTo(new Vec3(0, 0, 1), nextPos.sub(point.pos[which]).normalize());
                 let matrixTranslate = Mat4.translation(point.pos[which].x, point.pos[which].y, point.pos[which].z);
                 let matrixScaleArrow = Mat4.scale(scale2, scale2, scale2);
                 let matrixTranslateArrow = Mat4.translation(nextPos.x, nextPos.y, nextPos.z);
-                point.rendererOutgoingPaths[n][which].setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate))).setDiffuseColor(point.next[n].node.firstInPath ? [0, 0.8, 0.7, 1] : [0, 0.5, 1, 1]).setEnabled(point.isRendered);
-                point.rendererOutgoingPathArrows[n][which].setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow))).setDiffuseColor(point.next[n].node.firstInPath ? [0, 0.9, 0.8, 1] : [0, 0.75, 1, 1]).setEnabled(point.isRendered);
+                point.rendererOutgoingPaths[n][which].setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate))).setDiffuseColor(point.next[n].node.firstInPath ? [0, 0.8, 0.7, 1] : [0, 0.5, 1, 1]).setEnabled(linkVisible);
+                point.rendererOutgoingPathArrows[n][which].setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow))).setDiffuseColor(point.next[n].node.firstInPath ? [0, 0.9, 0.8, 1] : [0, 0.75, 1, 1]).setEnabled(linkVisible);
                 setupPanelMatrices(point.rendererOutgoingPathPanels[n][which], point.pos[which], nextPos);
-                point.rendererOutgoingPathPanels[n][which].setDiffuseColor([0, 0.25, 1, 0.3]).setEnabled(point.isRendered);
+                point.rendererOutgoingPathPanels[n][which].setDiffuseColor([0, 0.25, 1, 0.3]).setEnabled(linkVisible);
               }
             }
             let barScale = (this.hoveringOverPoint != null && this.hoveringOverPoint.point == point ? 1.5 : 1) * Math.min(scales[0], scales[1]) / 1.5;
             setupPathMatrices(point.rendererCheckbar, barScale, point.pos[0], point.pos[1]);
-            point.rendererCheckbar.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 255 ? [1, 0, 1, 1] : [0, 0, 1, 1]).setEnabled(point.isRendered || prevIsRendered2);
+            point.rendererCheckbar.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 255 ? [1, 0, 1, 1] : [0, 0, 1, 1]).setEnabled(pointVisible);
             setupPanelMatrices(point.rendererCheckpanel, point.pos[0], point.pos[1]);
-            point.rendererCheckpanel.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 0.6] : point.type != 255 ? [1, 0.25, 1, 0.6] : [0, 0.25, 1, 0.6]).setEnabled(point.isRendered || prevIsRendered2);
+            point.rendererCheckpanel.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 0.6] : point.type != 255 ? [1, 0.25, 1, 0.6] : [0, 0.25, 1, 0.6]).setEnabled(pointVisible);
             setupArrowMatrices(point.rendererDirArrow, barScale, point.pos[0], point.pos[1]);
-            point.rendererDirArrow.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 255 ? [1, 0, 1, 1] : [0, 0, 1, 1]).setEnabled(this.viewer.cfg.checkpointsEnableDirectionArrows && (point.isRendered || prevIsRendered2));
+            point.rendererDirArrow.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 255 ? [1, 0, 1, 1] : [0, 0, 1, 1]).setEnabled(pointVisible && this.viewer.cfg.checkpointsEnableDirectionArrows);
             let respawnNode = point.respawnNode;
             if (respawnNode == null && this.data.respawnPoints.nodes.length > 0)
               respawnNode = this.data.respawnPoints.nodes[0];
-            if (respawnNode != null) {
+            if (pointVisible && respawnNode != null && respawnNode.hidden !== true) {
               setupPathMatrices(point.rendererRespawnLink, barScale, point.pos[0], respawnNode.pos);
-              point.rendererRespawnLink.setDiffuseColor([0.85, 0.85, 0, 1]).setEnabled(this.viewer.cfg.checkpointsEnableRespawnPointLinks && point.isRendered);
+              point.rendererRespawnLink.setDiffuseColor([0.85, 0.85, 0, 1]).setEnabled(this.viewer.cfg.checkpointsEnableRespawnPointLinks);
             } else
               point.rendererRespawnLink.setEnabled(false);
           }
@@ -3125,10 +3402,13 @@ var KmpEditorWeb = (() => {
             this.sceneSidePanels.render(this.viewer.gl, camera);
           }
           for (let point of this.data.checkpointPoints.nodes) {
+            let pointHidden = point.hidden === true;
+            let prevIsRendered = !pointHidden && point.prev.some((p) => p.node.isRendered && p.node.hidden !== true);
+            let pointVisible = !pointHidden && (point.isRendered || prevIsRendered);
             for (let which = 0; which < 2; which++) {
               let hovering = this.hoveringOverPoint != null && this.hoveringOverPoint.point == point && this.hoveringOverPoint.which == which;
               let scale = (hovering ? 1.5 : 1) * this.viewer.getElementScale(point.pos[which]);
-              point.rendererSelected[which].setTranslation(point.pos[which]).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 0.5, 1, 1]).setEnabled(point.selected[which] && (point.isRendered || prevIsRendered));
+              point.rendererSelected[which].setTranslation(point.pos[which]).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 0.5, 1, 1]).setEnabled(pointVisible && point.selected[which]);
               point.rendererSelectedCore[which].setDiffuseColor([0, 0, 1, 1]);
             }
           }
@@ -3867,14 +4147,15 @@ var KmpEditorWeb = (() => {
         }
         drawAfterModel() {
           for (let point of this.data.objects.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0, 1, 1]);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.5, 1, 1]).setEnabled(point.selected);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0, 1, 1]).setEnabled(!pointHidden);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.5, 1, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor([1, 0, 1, 1]);
             let matrixDirection = Mat4.scale(scale, scale / 1.5, scale / 1.5).mul(Mat4.rotation(new Vec3(0, 0, 1), 90 * Math.PI / 180)).mul(Mat4.rotation(new Vec3(1, 0, 0), point.rotation.x * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 0, 1), -point.rotation.y * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 1, 0), -point.rotation.z * Math.PI / 180)).mul(Mat4.translation(point.pos.x, point.pos.y, point.pos.z));
-            point.rendererDirection.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0.5, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionArrow.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0.35, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionUp.setCustomMatrix(matrixDirection).setDiffuseColor([0.75, 0, 0.75, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
+            point.rendererDirection.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0.5, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionArrow.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0.35, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionUp.setCustomMatrix(matrixDirection).setDiffuseColor([0.75, 0, 0.75, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
           }
           this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera());
           this.sceneAfter.clearDepth(this.viewer.gl);
@@ -3918,6 +4199,7 @@ var KmpEditorWeb = (() => {
           panel.addButton(null, "(X) Delete Selected", () => this.deleteSelectedPoints());
           panel.addButton(null, "(Y) Snap To Collision Y", () => this.snapSelectedToY());
           panel.addButton(null, "(U) Unlink Selected", () => this.unlinkSelectedPoints());
+          panel.addButton(null, "(I) Select In-Between 2 Selected", () => this.selectBetweenTwoSelectedPoints());
           panel.addSpacer(null);
           let routeOptions = [];
           for (let i = 0; i < this.data.routes.length; i++)
@@ -4019,6 +4301,16 @@ var KmpEditorWeb = (() => {
             case "u":
               this.unlinkSelectedPoints();
               return true;
+            case "H":
+            case "h":
+              if (ev.altKey)
+                this.unhideAllPoints();
+              else
+                this.hideSelectedPoints();
+              return true;
+            case "I":
+            case "i":
+              return this.selectBetweenTwoSelectedPoints();
           }
           return false;
         }
@@ -4028,24 +4320,28 @@ var KmpEditorWeb = (() => {
           let route = this.data.routes[this.currentRouteIndex];
           let cameraPos = this.viewer.getCurrentCameraPosition();
           for (let point of route.points.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0, 0.75, 0.75, 1]);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0, 0.75, 0.75, 1]).setEnabled(!pointHidden);
             for (let n = 0; n < point.next.length; n++) {
-              let nextPos = point.next[n].node.pos;
+              let nextPoint = point.next[n].node;
+              let nextPos = nextPoint.pos;
+              let pathVisible = !pointHidden && !this.isPointHidden(nextPoint);
               let scale2 = Math.min(scale, this.viewer.getElementScale(nextPos));
               let matrixScale = Mat4.scale(scale2, scale2, nextPos.sub(point.pos).magn());
               let matrixAlign = Mat4.rotationFromTo(new Vec3(0, 0, 1), nextPos.sub(point.pos).normalize());
               let matrixTranslate = Mat4.translation(point.pos.x, point.pos.y, point.pos.z);
               let matrixScaleArrow = Mat4.scale(scale2, scale2, scale2);
               let matrixTranslateArrow = Mat4.translation(nextPos.x, nextPos.y, nextPos.z);
-              point.rendererOutgoingPaths[n].setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate))).setDiffuseColor([0.5, 1, 1, 1]);
-              point.rendererOutgoingPathArrows[n].setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow))).setDiffuseColor([0, 0.55, 0.75, 1]);
+              point.rendererOutgoingPaths[n].setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate))).setDiffuseColor([0.5, 1, 1, 1]).setEnabled(pathVisible);
+              point.rendererOutgoingPathArrows[n].setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow))).setDiffuseColor([0, 0.55, 0.75, 1]).setEnabled(pathVisible);
             }
           }
           this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera());
           for (let point of route.points.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 1, 1, 1]).setEnabled(point.selected);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 1, 1, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor([0, 0.75, 0.75, 1]);
           }
           this.sceneAfter.clearDepth(this.viewer.gl);
@@ -4322,17 +4618,18 @@ var KmpEditorWeb = (() => {
         }
         drawAfterModel() {
           for (let point of this.data.areaPoints.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.5, 0, 1]);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.7, 0, 1]).setEnabled(point.selected);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.5, 0, 1]).setEnabled(!pointHidden);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.7, 0, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor([1, 0.5, 0, 1]);
             let pointScale = Mat4.scale(scale, scale / 1.5, scale / 1.5);
             let areaScale = Mat4.scale(point.scale.x, point.scale.z, point.scale.y).mul(Mat4.rotation(new Vec3(0, 0, 1), 90 * Math.PI / 180));
             let matrixDirection = Mat4.rotation(new Vec3(0, 0, 1), 90 * Math.PI / 180).mul(Mat4.rotation(new Vec3(1, 0, 0), point.rotation.x * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 0, 1), -point.rotation.y * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 1, 0), -point.rotation.z * Math.PI / 180)).mul(Mat4.translation(point.pos.x, point.pos.y, point.pos.z));
-            point.rendererDirection.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([1, 0.7, 0, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionArrow.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([1, 0.35, 0, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionUp.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([0.75, 0.5, 0, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererArea.setCustomMatrix(areaScale.mul(matrixDirection)).setDiffuseColor([1, 0.7, 0, 0.5]).setEnabled(point.isRendered);
+            point.rendererDirection.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([1, 0.7, 0, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionArrow.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([1, 0.35, 0, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionUp.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([0.75, 0.5, 0, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererArea.setCustomMatrix(areaScale.mul(matrixDirection)).setDiffuseColor([1, 0.7, 0, 0.5]).setEnabled(!pointHidden && point.isRendered);
           }
           this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera());
           this.sceneAfter.clearDepth(this.viewer.gl);
@@ -4539,15 +4836,16 @@ var KmpEditorWeb = (() => {
         }
         drawAfterModel() {
           for (let point of this.data.cameras.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 0.1, 0.7, 1]);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.7, 0.1, 1, 1]).setEnabled(point.selected);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 0.1, 0.7, 1]).setEnabled(!pointHidden);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.7, 0.1, 1, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor([0.5, 0.1, 0.7, 1]);
             let pointScale = Mat4.scale(scale, scale / 1.5, scale / 1.5);
             let matrixDirection = Mat4.rotation(new Vec3(0, 0, 1), 90 * Math.PI / 180).mul(Mat4.rotation(new Vec3(1, 0, 0), point.rotation.x * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 0, 1), -point.rotation.y * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 1, 0), -point.rotation.z * Math.PI / 180)).mul(Mat4.translation(point.pos.x, point.pos.y, point.pos.z));
-            point.rendererDirection.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([0.7, 0.1, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionArrow.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([0.5, 0.1, 0.8, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionUp.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([0.75, 0.1, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
+            point.rendererDirection.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([0.7, 0.1, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionArrow.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([0.5, 0.1, 0.8, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionUp.setCustomMatrix(pointScale.mul(matrixDirection)).setDiffuseColor([0.75, 0.1, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
           }
           this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera());
           this.sceneAfter.clearDepth(this.viewer.gl);
@@ -4675,19 +4973,20 @@ var KmpEditorWeb = (() => {
         }
         drawAfterModel() {
           for (let point of this.data.respawnPoints.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.55, 0.55, 0, 1]);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.95, 0.95, 0, 1]).setEnabled(point.selected);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.55, 0.55, 0, 1]).setEnabled(!pointHidden);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.95, 0.95, 0, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor([0.55, 0.55, 0, 1]);
             let matrixScale = Mat4.scale(scale, scale / 1.5, scale / 1.5);
             let matrixDirection = Mat4.rotation(new Vec3(0, 0, 1), 90 * Math.PI / 180).mul(Mat4.rotation(new Vec3(1, 0, 0), point.rotation.x * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 0, 1), -point.rotation.y * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 1, 0), -point.rotation.z * Math.PI / 180)).mul(Mat4.translation(point.pos.x, point.pos.y, point.pos.z));
-            point.rendererDirection.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.85, 0.85, 0, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionArrow.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.75, 0.75, 0, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionUp.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.5, 0.5, 0, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
+            point.rendererDirection.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.85, 0.85, 0, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionArrow.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.75, 0.75, 0, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionUp.setCustomMatrix(matrixScale.mul(matrixDirection)).setDiffuseColor([0.5, 0.5, 0, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
             let k = 0;
             for (let i = -600; i <= 0; i += 300)
               for (let j = -450; j <= 450; j += 300) {
-                point.rendererPlayerPositions[k].setCustomMatrix(Mat4.translation(i, j, 0).mul(matrixDirection).mul(Mat4.translation(0, 0, -550))).setDiffuseColor([0.75, 0.75, 0, 1]).setEnabled(this.viewer.cfg.respawnsEnablePlayerSlots);
+                point.rendererPlayerPositions[k].setCustomMatrix(Mat4.translation(i, j, 0).mul(matrixDirection).mul(Mat4.translation(0, 0, -550))).setDiffuseColor([0.75, 0.75, 0, 1]).setEnabled(!pointHidden && this.viewer.cfg.respawnsEnablePlayerSlots);
                 k++;
               }
           }
@@ -4818,15 +5117,16 @@ var KmpEditorWeb = (() => {
         }
         drawAfterModel() {
           for (let point of this.data.cannonPoints.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0, 0, 1]);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.5, 0.5, 1]).setEnabled(point.selected);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0, 0, 1]).setEnabled(!pointHidden);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([1, 0.5, 0.5, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor([1, 0, 0, 1]);
             let matrixDirection = Mat4.scale(scale, scale / 1.5, scale / 1.5).mul(Mat4.rotation(new Vec3(0, 0, 1), 90 * Math.PI / 180)).mul(Mat4.rotation(new Vec3(1, 0, 0), point.rotation.x * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 0, 1), -point.rotation.y * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 1, 0), -point.rotation.z * Math.PI / 180)).mul(Mat4.translation(point.pos.x, point.pos.y, point.pos.z));
-            point.rendererDirection.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0.75, 0.75, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionArrow.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0, 0, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionUp.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0.25, 0.25, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            if (point.selected && this.viewer.cfg.cannonsEnableDirectionRender) {
+            point.rendererDirection.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0.75, 0.75, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionArrow.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0, 0, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionUp.setCustomMatrix(matrixDirection).setDiffuseColor([1, 0.25, 0.25, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            if (!pointHidden && point.selected && this.viewer.cfg.cannonsEnableDirectionRender) {
               let matrixScale = Mat4.scale(1e6, 1, 1e5);
               let matrixAlign = Mat4.rotation(new Vec3(0, 0, 1), (-90 - point.rotation.y) * Math.PI / 180);
               let matrixTranslate = Mat4.translation(point.pos.x, point.pos.y, point.pos.z);
@@ -4923,14 +5223,15 @@ var KmpEditorWeb = (() => {
         }
         drawAfterModel() {
           for (let point of this.data.finishPoints.nodes) {
+            let pointHidden = this.isPointHidden(point);
             let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos);
-            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 0, 1, 1]);
-            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.75, 0.5, 1, 1]).setEnabled(point.selected);
+            point.renderer.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.5, 0, 1, 1]).setEnabled(!pointHidden);
+            point.rendererSelected.setTranslation(point.pos).setScaling(new Vec3(scale, scale, scale)).setDiffuseColor([0.75, 0.5, 1, 1]).setEnabled(!pointHidden && point.selected);
             point.rendererSelectedCore.setDiffuseColor([0.5, 0, 1, 1]);
             let matrixDirection = Mat4.scale(scale, scale / 1.5, scale / 1.5).mul(Mat4.rotation(new Vec3(0, 0, 1), 90 * Math.PI / 180)).mul(Mat4.rotation(new Vec3(1, 0, 0), point.rotation.x * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 0, 1), -point.rotation.y * Math.PI / 180)).mul(Mat4.rotation(new Vec3(0, 1, 0), -point.rotation.z * Math.PI / 180)).mul(Mat4.translation(point.pos.x, point.pos.y, point.pos.z));
-            point.rendererDirection.setCustomMatrix(matrixDirection).setDiffuseColor([0.87, 0.75, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionArrow.setCustomMatrix(matrixDirection).setDiffuseColor([0.5, 0, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
-            point.rendererDirectionUp.setCustomMatrix(matrixDirection).setDiffuseColor([0.5, 0.25, 1, 1]).setEnabled(this.viewer.cfg.enableRotationRender);
+            point.rendererDirection.setCustomMatrix(matrixDirection).setDiffuseColor([0.87, 0.75, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionArrow.setCustomMatrix(matrixDirection).setDiffuseColor([0.5, 0, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
+            point.rendererDirectionUp.setCustomMatrix(matrixDirection).setDiffuseColor([0.5, 0.25, 1, 1]).setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender);
           }
           this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera());
           this.sceneAfter.clearDepth(this.viewer.gl);
@@ -5137,8 +5438,9 @@ var KmpEditorWeb = (() => {
           this.render();
         }
         resize() {
-          let width = this.canvas.getBoundingClientRect().width;
-          let height = window.innerHeight;
+          let rect = this.canvas.getBoundingClientRect();
+          let width = Math.max(1, Math.floor(rect.width));
+          let height = Math.max(1, Math.floor(rect.height));
           this.width = this.canvas.width = width;
           this.height = this.canvas.height = height;
           this.gl.viewport(0, 0, width, height);
@@ -8364,7 +8666,7 @@ var KmpEditorWeb = (() => {
           this.currentArchiveKmpPath = null;
           this.currentArchiveKclPath = null;
           this.currentArchiveSourceName = null;
-          document.body.onresize = () => this.onResize();
+          window.addEventListener("resize", () => this.onResize());
           window.addEventListener("beforeunload", (ev) => this.onClose(ev));
           this.bindToolbar();
           this.setupDragAndDropSzsImport();

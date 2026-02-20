@@ -21,6 +21,7 @@ class ViewerCheckpoints
 		this.hoveringOverPoint = null
 		this.linkingPoints = false
 		this.multiSelect = false
+		this.pendingSingleSelection = null
 		
 		this.zTop = 0
 		this.zBottom = 0
@@ -111,6 +112,7 @@ class ViewerCheckpoints
 		panel.addButton(null, "(A) Select/Unselect All", () => this.toggleAllSelection())
 		panel.addButton(null, "(X) Delete Selected", () => this.deleteSelectedPoints())
 		panel.addButton(null, "(U) Unlink Selected", () => this.unlinkSelectedPoints())
+		panel.addButton(null, "(I) Select In-Between 2 Selected", () => this.selectBetweenTwoSelectedPoints())
 		panel.addButton(null, "(S) Toggle Show Loaded Checkpoints", () => this.toggleShowLoaded())
 		panel.addButton(null, "(E) Clear Respawn Point Assignment", () => this.clearRespawnPoints())
 		panel.addButton(null, "(R) Assign Selected Respawn Point", () => this.assignRespawnPoints())
@@ -202,6 +204,12 @@ class ViewerCheckpoints
 				point.selected = [false, false]
 				point.moveOrigin = [point.pos[0], point.pos[1]]
 			}
+
+			if (point.hidden === undefined)
+				point.hidden = false
+
+			if (point.hidden)
+				point.selected = [false, false]
 			
 			let renderer1 = new GfxNodeRendererTransform()
 				.attach(this.scene.root)
@@ -344,6 +352,9 @@ class ViewerCheckpoints
 		{
 			for (let point of this.data.checkpointPoints.nodes)
 			{
+				if (point.hidden === true)
+					continue
+
 				if (!includeSelected && point.selected[which])
 					continue
 				
@@ -371,7 +382,7 @@ class ViewerCheckpoints
 	selectAll()
 	{
 		for (let point of this.data.checkpointPoints.nodes)
-			point.selected = [true, true]
+			point.selected = (point.hidden === true ? [false, false] : [true, true])
 		
 		this.refreshPanels()
 	}
@@ -394,6 +405,107 @@ class ViewerCheckpoints
 			this.unselectAll()
 		else
 			this.selectAll()
+	}
+
+
+	hideSelectedPoints()
+	{
+		let hasChange = false
+		for (let point of this.data.checkpointPoints.nodes)
+		{
+			if (point.hidden === true || (!point.selected[0] && !point.selected[1]))
+				continue
+
+			point.hidden = true
+			point.selected = [false, false]
+			hasChange = true
+		}
+
+		if (!hasChange)
+			return
+
+		this.refreshPanels()
+	}
+
+
+	unhideAllPoints()
+	{
+		let hasChange = false
+		for (let point of this.data.checkpointPoints.nodes)
+		{
+			if (point.hidden !== true)
+				continue
+
+			point.hidden = false
+			hasChange = true
+		}
+
+		if (!hasChange)
+			return
+
+		this.refreshPanels()
+	}
+
+
+	findPathBetweenPoints(startPoint, endPoint)
+	{
+		let queue = [startPoint]
+		let visited = new Set([startPoint])
+		let parent = new Map([[startPoint, null]])
+		
+		while (queue.length > 0)
+		{
+			let point = queue.shift()
+			if (point == endPoint)
+				break
+			
+			let neighbors = []
+			for (let next of point.next)
+				neighbors.push(next.node)
+			for (let prev of point.prev)
+				neighbors.push(prev.node)
+			
+			for (let neighbor of neighbors)
+			{
+				if (neighbor == null || neighbor.hidden === true || visited.has(neighbor))
+					continue
+				
+				visited.add(neighbor)
+				parent.set(neighbor, point)
+				queue.push(neighbor)
+			}
+		}
+		
+		if (!visited.has(endPoint))
+			return null
+		
+		let path = []
+		let cur = endPoint
+		while (cur != null)
+		{
+			path.push(cur)
+			cur = parent.get(cur)
+		}
+		
+		return path.reverse()
+	}
+
+
+	selectBetweenTwoSelectedPoints()
+	{
+		let selectedPoints = this.data.checkpointPoints.nodes.filter(p => p.hidden !== true && (p.selected[0] || p.selected[1]))
+		if (selectedPoints.length != 2)
+			return false
+		
+		let path = this.findPathBetweenPoints(selectedPoints[0], selectedPoints[1])
+		if (path == null)
+			return false
+		
+		for (let point of path)
+			point.selected = [true, true]
+		
+		this.refreshPanels()
+		return true
 	}
 	
 	
@@ -583,6 +695,14 @@ class ViewerCheckpoints
 			case "a":
 				this.toggleAllSelection()
 				return true
+
+			case "H":
+			case "h":
+				if (ev.altKey)
+					this.unhideAllPoints()
+				else
+					this.hideSelectedPoints()
+				return true
 			
 			case "Backspace":
 			case "Delete":
@@ -610,6 +730,10 @@ class ViewerCheckpoints
 			case "r":
 				this.assignRespawnPoints()
 				return true
+
+			case "I":
+			case "i":
+				return this.selectBetweenTwoSelectedPoints()
 		}
 		
 		return false
@@ -619,13 +743,17 @@ class ViewerCheckpoints
 	onMouseDown(ev, x, y, cameraPos, ray, hit, distToHit, mouse3DPos)
 	{
 		this.linkingPoints = false
+		this.pendingSingleSelection = null
 		
 		for (let point of this.data.checkpointPoints.nodes)
 			point.moveOrigin = [point.pos[0], point.pos[1]]
 		
 		let hoveringOverElem = this.getHoveringOverElement(cameraPos, ray, distToHit)
+		let hasMultiSelection = (this.data.checkpointPoints.nodes.filter(p => p.hidden !== true && (p.selected[0] || p.selected[1])).length > 1)
 		
-		if (ev.altKey || (!(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.point.selected[hoveringOverElem.which])))
+		if (!(ev.altKey || ev.ctrlKey || ev.metaKey) && hasMultiSelection && hoveringOverElem != null && hoveringOverElem.point.selected[hoveringOverElem.which])
+			this.pendingSingleSelection = hoveringOverElem
+		else if (ev.altKey || (!(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.point.selected[hoveringOverElem.which])))
 			this.unselectAll()
 
 		if (ev.ctrlKey || ev.metaKey)
@@ -769,6 +897,19 @@ class ViewerCheckpoints
 	{
 		this.multiSelect = false
 
+		if (this.pendingSingleSelection != null)
+		{
+			let moved = (Math.abs(this.viewer.mouseMoveOffsetPixels.x) > 3 || Math.abs(this.viewer.mouseMoveOffsetPixels.y) > 3)
+			if (!moved)
+			{
+				for (let point of this.data.checkpointPoints.nodes)
+					point.selected = [false, false]
+				this.pendingSingleSelection.point.selected[this.pendingSingleSelection.which] = true
+				this.refreshPanels()
+			}
+			this.pendingSingleSelection = null
+		}
+
 		if (this.viewer.mouseAction == "move")
 		{
 			if (this.linkingPoints)
@@ -856,7 +997,9 @@ class ViewerCheckpoints
 		for (let point of this.data.checkpointPoints.nodes)
 		{
 			let scales = [0, 0]
-			let prevIsRendered = point.prev.some(p => p.node.isRendered)
+			let pointHidden = (point.hidden === true)
+			let prevIsRendered = (!pointHidden && point.prev.some(p => p.node.isRendered && p.node.hidden !== true))
+			let pointVisible = (!pointHidden && (point.isRendered || prevIsRendered))
 			
 			for (let which = 0; which < 2; which++)
 			{
@@ -868,11 +1011,14 @@ class ViewerCheckpoints
 					.setTranslation(point.pos[which])
 					.setScaling(new Vec3(scale, scale, scale))
 					.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 0xff ? [1, 0, 1, 1] : [0, 0, 1, 1])
-					.setEnabled(point.isRendered || prevIsRendered)
+					.setEnabled(pointVisible)
 				
 				for (let n = 0; n < point.next.length; n++)
 				{
-					let nextPos = point.next[n].node.pos[which]
+					let nextPoint = point.next[n].node
+					let nextPos = nextPoint.pos[which]
+					let nextVisible = (nextPoint.hidden !== true && nextPoint.isRendered)
+					let linkVisible = (pointVisible && nextVisible)
 					
 					let scale2 = Math.min(scale, this.viewer.getElementScale(nextPos))
 					
@@ -886,16 +1032,16 @@ class ViewerCheckpoints
 					point.rendererOutgoingPaths[n][which]
 						.setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate)))
 						.setDiffuseColor(point.next[n].node.firstInPath ? [0, 0.8, 0.7, 1] : [0, 0.5, 1, 1])
-						.setEnabled(point.isRendered)
+						.setEnabled(linkVisible)
 						
 					point.rendererOutgoingPathArrows[n][which]
 						.setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow)))
 						.setDiffuseColor(point.next[n].node.firstInPath ? [0, 0.9, 0.8, 1] : [0, 0.75, 1, 1])
-						.setEnabled(point.isRendered)
+						.setEnabled(linkVisible)
 						
 					setupPanelMatrices(point.rendererOutgoingPathPanels[n][which], point.pos[which], nextPos)
 					point.rendererOutgoingPathPanels[n][which].setDiffuseColor([0, 0.25, 1, 0.3])
-						.setEnabled(point.isRendered)
+						.setEnabled(linkVisible)
 					/*
 					point.rendererOutgoingQuads[n]
 						.setTranslation(new Vec3(0, 0, this.zTop))
@@ -910,29 +1056,29 @@ class ViewerCheckpoints
 			setupPathMatrices(point.rendererCheckbar, barScale, point.pos[0], point.pos[1])
 			point.rendererCheckbar
 				.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 0xff ? [1, 0, 1, 1] : [0, 0, 1, 1])
-				.setEnabled(point.isRendered || prevIsRendered)
+				.setEnabled(pointVisible)
 			
 			setupPanelMatrices(point.rendererCheckpanel, point.pos[0], point.pos[1])
 			point.rendererCheckpanel
 				.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 0.6] : point.type != 0xff ? [1, 0.25, 1, 0.6] : [0, 0.25, 1, 0.6])
-				.setEnabled(point.isRendered || prevIsRendered)
+				.setEnabled(pointVisible)
 			
 			setupArrowMatrices(point.rendererDirArrow, barScale, point.pos[0], point.pos[1])
 			point.rendererDirArrow
 				.setDiffuseColor(point.type == 0 ? [1, 0.5, 1, 1] : point.type != 0xff ? [1, 0, 1, 1] : [0, 0, 1, 1])
-				.setEnabled(this.viewer.cfg.checkpointsEnableDirectionArrows && (point.isRendered || prevIsRendered))
+				.setEnabled(pointVisible && this.viewer.cfg.checkpointsEnableDirectionArrows)
 			
 			let respawnNode = point.respawnNode
 			if (respawnNode == null && this.data.respawnPoints.nodes.length > 0)
 				respawnNode = this.data.respawnPoints.nodes[0]
 			
-			if (respawnNode != null)
+			if (pointVisible && respawnNode != null && respawnNode.hidden !== true)
 			{
 				setupPathMatrices(point.rendererRespawnLink, barScale, point.pos[0], respawnNode.pos)
 				
 				point.rendererRespawnLink
 					.setDiffuseColor([0.85, 0.85, 0, 1])
-					.setEnabled(this.viewer.cfg.checkpointsEnableRespawnPointLinks && point.isRendered)
+					.setEnabled(this.viewer.cfg.checkpointsEnableRespawnPointLinks)
 			}
 			else
 				point.rendererRespawnLink.setEnabled(false)
@@ -948,6 +1094,10 @@ class ViewerCheckpoints
 		
 		for (let point of this.data.checkpointPoints.nodes)
 		{
+			let pointHidden = (point.hidden === true)
+			let prevIsRendered = (!pointHidden && point.prev.some(p => p.node.isRendered && p.node.hidden !== true))
+			let pointVisible = (!pointHidden && (point.isRendered || prevIsRendered))
+
 			for (let which = 0; which < 2; which++)
 			{
 				let hovering = (this.hoveringOverPoint != null && this.hoveringOverPoint.point == point && this.hoveringOverPoint.which == which)
@@ -957,7 +1107,7 @@ class ViewerCheckpoints
 					.setTranslation(point.pos[which])
 					.setScaling(new Vec3(scale, scale, scale))
 					.setDiffuseColor([0.5, 0.5, 1, 1])
-					.setEnabled(point.selected[which] && (point.isRendered || prevIsRendered))
+					.setEnabled(pointVisible && point.selected[which])
 					
 				point.rendererSelectedCore[which]
 					.setDiffuseColor([0, 0, 1, 1])

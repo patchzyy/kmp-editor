@@ -38,6 +38,7 @@ class ViewerRoutes extends PathViewer
 		panel.addButton(null, "(X) Delete Selected", () => this.deleteSelectedPoints())
 		panel.addButton(null, "(Y) Snap To Collision Y", () => this.snapSelectedToY())
 		panel.addButton(null, "(U) Unlink Selected", () => this.unlinkSelectedPoints())
+		panel.addButton(null, "(I) Select In-Between 2 Selected", () => this.selectBetweenTwoSelectedPoints())
 		panel.addSpacer(null)
 
 		let routeOptions = []
@@ -148,6 +149,18 @@ class ViewerRoutes extends PathViewer
 			case "u":
 				this.unlinkSelectedPoints()
 				return true
+
+			case "H":
+			case "h":
+				if (ev.altKey)
+					this.unhideAllPoints()
+				else
+					this.hideSelectedPoints()
+				return true
+
+			case "I":
+			case "i":
+				return this.selectBetweenTwoSelectedPoints()
 		}
 		
 		return false
@@ -165,16 +178,20 @@ class ViewerRoutes extends PathViewer
 		
 		for (let point of route.points.nodes)
 		{
+			let pointHidden = this.isPointHidden(point)
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
 			point.renderer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([0, 0.75, 0.75, 1])
+				.setEnabled(!pointHidden)
 				
 			for (let n = 0; n < point.next.length; n++)
 			{
-				let nextPos = point.next[n].node.pos
+				let nextPoint = point.next[n].node
+				let nextPos = nextPoint.pos
+				let pathVisible = (!pointHidden && !this.isPointHidden(nextPoint))
 				
 				let scale2 = Math.min(scale, this.viewer.getElementScale(nextPos))
 				
@@ -188,10 +205,12 @@ class ViewerRoutes extends PathViewer
 				point.rendererOutgoingPaths[n]
 					.setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate)))
 					.setDiffuseColor([0.5, 1, 1, 1])
+					.setEnabled(pathVisible)
 					
 				point.rendererOutgoingPathArrows[n]
 					.setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow)))
 					.setDiffuseColor([0, 0.55, 0.75, 1])
+					.setEnabled(pathVisible)
 			}
 		}
 		
@@ -199,13 +218,14 @@ class ViewerRoutes extends PathViewer
 		
 		for (let point of route.points.nodes)
 		{
+			let pointHidden = this.isPointHidden(point)
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
 			point.rendererSelected
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([0.5, 1, 1, 1])
-				.setEnabled(point.selected)
+				.setEnabled(!pointHidden && point.selected)
 				
 			point.rendererSelectedCore
 				.setDiffuseColor([0, 0.75, 0.75, 1])

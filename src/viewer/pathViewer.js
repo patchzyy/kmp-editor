@@ -23,6 +23,7 @@ class PathViewer
 		this.targetPos = null
 		this.ctrlIsHeld = false
 		this.altIsHeld = false
+		this.pendingSingleSelection = null
 		
 		this.lastAxisHotkey = ""
 		this.snapCollision = this.viewer.cfg.snapToCollision
@@ -87,6 +88,12 @@ class PathViewer
 				point.selected = false
 				point.moveOrigin = point.pos
 			}
+
+			if (point.hidden === undefined)
+				point.hidden = false
+
+			if (point.hidden)
+				point.selected = false
 			
 			point.renderer = new GfxNodeRendererTransform()
 				.attach(this.scene.root)
@@ -146,6 +153,9 @@ class PathViewer
 		let minDistToPoint = 1000000
 		for (let point of this.points().nodes)
 		{
+			if (this.isPointHidden(point))
+				continue
+
 			if (!includeSelected && point.selected)
 				continue
 			
@@ -167,12 +177,18 @@ class PathViewer
 		
 		return elem
 	}
+
+
+	isPointHidden(point)
+	{
+		return point.hidden === true
+	}
 	
 	
 	selectAll()
 	{
 		for (let point of this.points().nodes)
-			point.selected = true
+			point.selected = !this.isPointHidden(point)
 		
 		this.refreshPanels()
 	}
@@ -195,6 +211,107 @@ class PathViewer
 			this.unselectAll()
 		else
 			this.selectAll()
+	}
+
+
+	hideSelectedPoints()
+	{
+		let hasChange = false
+		for (let point of this.points().nodes)
+		{
+			if (!point.selected || this.isPointHidden(point))
+				continue
+
+			point.hidden = true
+			point.selected = false
+			hasChange = true
+		}
+
+		if (!hasChange)
+			return
+
+		this.refreshPanels()
+	}
+
+
+	unhideAllPoints()
+	{
+		let hasChange = false
+		for (let point of this.points().nodes)
+		{
+			if (!this.isPointHidden(point))
+				continue
+
+			point.hidden = false
+			hasChange = true
+		}
+
+		if (!hasChange)
+			return
+
+		this.refreshPanels()
+	}
+
+
+	findPathBetweenPoints(startPoint, endPoint)
+	{
+		let queue = [startPoint]
+		let visited = new Set([startPoint])
+		let parent = new Map([[startPoint, null]])
+		
+		while (queue.length > 0)
+		{
+			let point = queue.shift()
+			if (point == endPoint)
+				break
+			
+			let neighbors = []
+			for (let next of point.next)
+				neighbors.push(next.node)
+			for (let prev of point.prev)
+				neighbors.push(prev.node)
+			
+			for (let neighbor of neighbors)
+			{
+				if (neighbor == null || this.isPointHidden(neighbor) || visited.has(neighbor))
+					continue
+				
+				visited.add(neighbor)
+				parent.set(neighbor, point)
+				queue.push(neighbor)
+			}
+		}
+		
+		if (!visited.has(endPoint))
+			return null
+		
+		let path = []
+		let cur = endPoint
+		while (cur != null)
+		{
+			path.push(cur)
+			cur = parent.get(cur)
+		}
+		
+		return path.reverse()
+	}
+
+
+	selectBetweenTwoSelectedPoints()
+	{
+		let selectedPoints = this.points().nodes.filter(p => p.selected && !this.isPointHidden(p))
+		if (selectedPoints.length != 2)
+			return false
+		
+		let path = this.findPathBetweenPoints(selectedPoints[0], selectedPoints[1])
+		if (path == null)
+			return false
+		
+		for (let point of path)
+			point.selected = true
+		
+		this.refreshPanels()
+		return true
 	}
 	
 	
@@ -356,6 +473,14 @@ class PathViewer
 			case "a":
 				this.toggleAllSelection()
 				return true
+
+			case "H":
+			case "h":
+				if (ev.altKey)
+					this.unhideAllPoints()
+				else
+					this.hideSelectedPoints()
+				return true
 			
 			case "Backspace":
 			case "Delete":
@@ -378,6 +503,10 @@ class PathViewer
 			case "f":
 				this.setSelectedAsFirstPoint()
 				return true
+
+			case "I":
+			case "i":
+				return this.selectBetweenTwoSelectedPoints()
 		}
 		
 		return false
@@ -387,13 +516,17 @@ class PathViewer
 	onMouseDown(ev, x, y, cameraPos, ray, hit, distToHit, mouse3DPos)
 	{
 		this.linkingPoints = false
+		this.pendingSingleSelection = null
 		
 		for (let point of this.points().nodes)
 			point.moveOrigin = point.pos
 		
 		let hoveringOverElem = this.getHoveringOverElement(cameraPos, ray, distToHit)
+		let hasMultiSelection = (this.points().nodes.filter(p => p.selected && !this.isPointHidden(p)).length > 1)
 		
-		if (ev.altKey || (!(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.selected)))
+		if (!(ev.altKey || ev.ctrlKey || ev.metaKey) && hasMultiSelection && hoveringOverElem != null && hoveringOverElem.selected)
+			this.pendingSingleSelection = hoveringOverElem
+		else if (ev.altKey || (!(ev.ctrlKey || ev.metaKey) && (hoveringOverElem == null || !hoveringOverElem.selected)))
 			this.unselectAll()
 
 		if (ev.ctrlKey || ev.metaKey)
@@ -417,12 +550,13 @@ class PathViewer
 					return
 				}
 
-				let newPoint = this.points().addNode()
-				this.points().onCloneNode(newPoint, hoveringOverElem)
-				newPoint.pos = hoveringOverElem.pos
-				newPoint.size = hoveringOverElem.size
-				
-				this.points().linkNodes(hoveringOverElem, newPoint)
+					let newPoint = this.points().addNode()
+					this.points().onCloneNode(newPoint, hoveringOverElem)
+					newPoint.pos = hoveringOverElem.pos
+					newPoint.size = hoveringOverElem.size
+					newPoint.hidden = false
+					
+					this.points().linkNodes(hoveringOverElem, newPoint)
 				
 				this.refresh()
 				
@@ -449,10 +583,11 @@ class PathViewer
 				alert("KMP error!\n\nMaximum number of points surpassed (" + this.points().maxNodes + ")")
 				return
 			}
-			let newPoint = this.points().addNode()
-			newPoint.pos = mouse3DPos
-			
-			this.refresh()
+				let newPoint = this.points().addNode()
+				newPoint.pos = mouse3DPos
+				newPoint.hidden = false
+				
+				this.refresh()
 			newPoint.selected = true
 			this.targetPos = newPoint.moveOrigin.clone()
 			this.data.refreshIndices(this.viewer.cfg.isBattleTrack)
@@ -506,11 +641,12 @@ class PathViewer
 				}
 				let point = selectedPoints[0]
 
-				let newPoint = this.points().addNode()
-				newPoint.pos = point.moveOrigin
-				newPoint.size = point.size
-				
-				this.points().linkNodes(point, newPoint)
+					let newPoint = this.points().addNode()
+					newPoint.pos = point.moveOrigin
+					newPoint.size = point.size
+					newPoint.hidden = false
+					
+					this.points().linkNodes(point, newPoint)
 				
 				this.refresh()
 				
@@ -610,6 +746,19 @@ class PathViewer
 	{
 		this.ctrlIsHeld = false
 		this.altIsHeld = false
+
+		if (this.pendingSingleSelection != null)
+		{
+			let moved = (Math.abs(this.viewer.mouseMoveOffsetPixels.x) > 3 || Math.abs(this.viewer.mouseMoveOffsetPixels.y) > 3)
+			if (!moved)
+			{
+				for (let point of this.points().nodes)
+					point.selected = false
+				this.pendingSingleSelection.selected = true
+				this.refreshPanels()
+			}
+			this.pendingSingleSelection = null
+		}
 		
 		if (this.lastAxisHotkey) {
 			this.lastAxisHotkey = ""

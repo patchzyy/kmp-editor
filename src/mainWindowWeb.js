@@ -57,7 +57,7 @@ class MainWindow
 		this.currentArchiveKclPath = null
 		this.currentArchiveSourceName = null
 
-		document.body.onresize = () => this.onResize()
+		window.addEventListener("resize", () => this.onResize())
 		window.addEventListener("beforeunload", (ev) => this.onClose(ev))
 		this.bindToolbar()
 		this.setupDragAndDropSzsImport()

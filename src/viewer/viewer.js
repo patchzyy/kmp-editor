@@ -147,8 +147,9 @@ class Viewer
 	
 	resize()
 	{
-		let width = this.canvas.getBoundingClientRect().width
-		let height = window.innerHeight // client height may be erroneously larger to try to preserve original canvas aspect ratio
+		let rect = this.canvas.getBoundingClientRect()
+		let width = Math.max(1, Math.floor(rect.width))
+		let height = Math.max(1, Math.floor(rect.height))
 		
 		this.width = this.canvas.width = width
 		this.height = this.canvas.height = height

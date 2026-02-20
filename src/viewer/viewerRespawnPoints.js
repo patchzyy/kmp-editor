@@ -122,18 +122,20 @@ class ViewerRespawnPoints extends PointViewer
 	{
 		for (let point of this.data.respawnPoints.nodes)
 		{
+			let pointHidden = this.isPointHidden(point)
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
 			point.renderer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([0.55, 0.55, 0, 1])
+				.setEnabled(!pointHidden)
 				
 			point.rendererSelected
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([0.95, 0.95, 0, 1])
-				.setEnabled(point.selected)
+				.setEnabled(!pointHidden && point.selected)
 				
 			point.rendererSelectedCore
 				.setDiffuseColor([0.55, 0.55, 0, 1])
@@ -149,17 +151,17 @@ class ViewerRespawnPoints extends PointViewer
 			point.rendererDirection
 				.setCustomMatrix(matrixScale.mul(matrixDirection))
 				.setDiffuseColor([0.85, 0.85, 0, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 				
 			point.rendererDirectionArrow
 				.setCustomMatrix(matrixScale.mul(matrixDirection))
 				.setDiffuseColor([0.75, 0.75, 0, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 				
 			point.rendererDirectionUp
 				.setCustomMatrix(matrixScale.mul(matrixDirection))
 				.setDiffuseColor([0.5, 0.5, 0, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 
 			let k = 0
 			for (let i = -600; i <= 0; i += 300)
@@ -168,7 +170,7 @@ class ViewerRespawnPoints extends PointViewer
 					point.rendererPlayerPositions[k]
 						.setCustomMatrix(Mat4.translation(i, j, 0).mul(matrixDirection).mul(Mat4.translation(0, 0, -550)))
 						.setDiffuseColor([0.75, 0.75, 0, 1])
-						.setEnabled(this.viewer.cfg.respawnsEnablePlayerSlots)
+						.setEnabled(!pointHidden && this.viewer.cfg.respawnsEnablePlayerSlots)
 					k++
 				}
 		}

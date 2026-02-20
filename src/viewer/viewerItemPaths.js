@@ -174,6 +174,7 @@ class ViewerItemPaths extends PathViewer
 		for (let p = 0; p < this.data.itemPoints.nodes.length; p++)
 		{
 			let point = this.data.itemPoints.nodes[p]
+			let pointHidden = this.isPointHidden(point)
 			
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
@@ -183,21 +184,25 @@ class ViewerItemPaths extends PathViewer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor(p == 0 ? [0, 0.4, 0, 1] : bbillCantStop ? [0.75, 0.75, 0.75, 1] : [0, 0.8, 0, 1])
+				.setEnabled(!pointHidden)
 				
 			let sizeCircleScale = point.deviation * 50
 			point.rendererSizeCircle
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(sizeCircleScale, sizeCircleScale, sizeCircleScale))
 				.setDiffuseColor([0.25, 0.8, 0, 0.5])
+				.setEnabled(!pointHidden)
 				
 			for (let n = 0; n < point.next.length; n++)
 			{
-				let nextPos = point.next[n].node.pos
+				let nextPoint = point.next[n].node
+				let nextPos = nextPoint.pos
+				let pathVisible = (!pointHidden && !this.isPointHidden(nextPoint))
 				
 				let scale2 = Math.min(scale, this.viewer.getElementScale(nextPos))
 				
-				let nextBbillCantStop = (point.next[n].node.setting2 & 0x1) != 0
-				let lowPriority = (point.next[n].node.setting2 & 0xa) != 0
+				let nextBbillCantStop = (nextPoint.setting2 & 0x1) != 0
+				let lowPriority = (nextPoint.setting2 & 0xa) != 0
 				
 				let matrixScale = Mat4.scale(scale2, scale2, nextPos.sub(point.pos).magn())
 				let matrixAlign = Mat4.rotationFromTo(new Vec3(0, 0, 1), nextPos.sub(point.pos).normalize())
@@ -209,10 +214,12 @@ class ViewerItemPaths extends PathViewer
 				point.rendererOutgoingPaths[n]
 					.setCustomMatrix(matrixScale.mul(matrixAlign.mul(matrixTranslate)))
 					.setDiffuseColor(nextBbillCantStop ? [0.5, 0.5, 0.5, 1] : lowPriority ? [0.5, 1, 0.8, 1] : n != 0 ? [0.8, 1, 0.5, 1] : [0.5, 1, 0, 1])
+					.setEnabled(pathVisible)
 					
 				point.rendererOutgoingPathArrows[n]
 					.setCustomMatrix(matrixScaleArrow.mul(matrixAlign.mul(matrixTranslateArrow)))
 					.setDiffuseColor(nextBbillCantStop ? [0.85, 0.85, 0.85, 1] : [0.1, 0.8, 0, 1])
+					.setEnabled(pathVisible)
 			}
 		}
 		
@@ -224,6 +231,7 @@ class ViewerItemPaths extends PathViewer
 		for (let p = 0; p < this.data.itemPoints.nodes.length; p++)
 		{
 			let point = this.data.itemPoints.nodes[p]
+			let pointHidden = this.isPointHidden(point)
 			
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
@@ -231,7 +239,7 @@ class ViewerItemPaths extends PathViewer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([0.4, 1, 0.1, 1])
-				.setEnabled(point.selected)
+				.setEnabled(!pointHidden && point.selected)
 				
 			point.rendererSelectedCore
 				.setDiffuseColor(p == 0 ? [0, 0.4, 0, 1] :[0, 0.8, 0, 1])

@@ -144,18 +144,20 @@ class ViewerStartPoints extends PointViewer
 	{
 		for (let point of this.data.startPoints.nodes)
 		{
+			let pointHidden = this.isPointHidden(point)
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
 			point.renderer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([0, 0, 1, 1])
+				.setEnabled(!pointHidden)
 			
 			point.rendererSelected
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([0.5, 0.5, 1, 1])
-				.setEnabled(point.selected)
+				.setEnabled(!pointHidden && point.selected)
 				
 			point.rendererSelectedCore
 				.setDiffuseColor([0, 0, 1, 1])
@@ -171,22 +173,22 @@ class ViewerStartPoints extends PointViewer
 			point.rendererDirection
 				.setCustomMatrix(matrixScale.mul(matrixDirection))
 				.setDiffuseColor([0.75, 0.75, 1, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 				
 			point.rendererDirectionArrow
 				.setCustomMatrix(matrixScale.mul(matrixDirection))
 				.setDiffuseColor([0, 0, 1, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 				
 			point.rendererDirectionUp
 				.setCustomMatrix(matrixScale.mul(matrixDirection))
 				.setDiffuseColor([0.25, 0.25, 1, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 			
 			point.rendererStartZone
 				.setCustomMatrix(matrixDirection)
 				.setDiffuseColor([0.25, 0.25, 1, 0.5])
-				.setEnabled(this.viewer.cfg.startPointsEnableZoneRender && !this.viewer.cfg.isBattleTrack && (this.data.startPoints.nodes.indexOf(point) == 0))
+				.setEnabled(!pointHidden && this.viewer.cfg.startPointsEnableZoneRender && !this.viewer.cfg.isBattleTrack && (this.data.startPoints.nodes.indexOf(point) == 0))
 		}
 		
 		this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera())

@@ -75,7 +75,7 @@ class MainWindow
 			window.addEventListener("focus", (ev) => remote.Menu.setApplicationMenu(this.menu))
 		}
 		
-		document.body.onresize = () => this.onResize()
+		window.addEventListener("resize", () => this.onResize())
 		window.addEventListener("beforeunload", (ev) => this.onClose(ev))
 		
 		// To prevent strange bug with the browser undoing/redoing changes in destroyed input elements

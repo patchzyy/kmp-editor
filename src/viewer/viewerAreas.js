@@ -238,22 +238,24 @@ class ViewerAreas extends PointViewer
 	}
 
 
-    drawAfterModel()
+	drawAfterModel()
 	{
 		for (let point of this.data.areaPoints.nodes)
 		{
+			let pointHidden = this.isPointHidden(point)
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
 			
 			point.renderer
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([1, 0.5, 0, 1])
+				.setEnabled(!pointHidden)
 				
 			point.rendererSelected
 				.setTranslation(point.pos)
 				.setScaling(new Vec3(scale, scale, scale))
 				.setDiffuseColor([1, 0.7, 0, 1])
-				.setEnabled(point.selected)
+				.setEnabled(!pointHidden && point.selected)
 				
 			point.rendererSelectedCore
 				.setDiffuseColor([1, 0.5, 0, 1])
@@ -272,22 +274,22 @@ class ViewerAreas extends PointViewer
 			point.rendererDirection
 				.setCustomMatrix(pointScale.mul(matrixDirection))
 				.setDiffuseColor([1, 0.7, 0, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 				
 			point.rendererDirectionArrow
 				.setCustomMatrix(pointScale.mul(matrixDirection))
 				.setDiffuseColor([1, 0.35, 0, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 				
 			point.rendererDirectionUp
 				.setCustomMatrix(pointScale.mul(matrixDirection))
 				.setDiffuseColor([0.75, 0.5, 0, 1])
-				.setEnabled(this.viewer.cfg.enableRotationRender)
+				.setEnabled(!pointHidden && this.viewer.cfg.enableRotationRender)
 
             point.rendererArea
                 .setCustomMatrix(areaScale.mul(matrixDirection))
                 .setDiffuseColor([1, 0.7, 0, 0.5])
-                .setEnabled(point.isRendered)
+                .setEnabled(!pointHidden && point.isRendered)
 		}
 		
 		this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera())
