@@ -5177,6 +5177,8 @@ var KmpEditorWeb = (() => {
             this.currentSubviewer.refresh();
             this.currentSubviewer.panel.setOpen(true);
           }
+          if (this.window != null && this.window.onSubviewerChanged)
+            this.window.onSubviewerChanged(this.currentSubviewer);
           this.render();
         }
         centerView() {
@@ -8148,8 +8150,13 @@ var KmpEditorWeb = (() => {
           this.undoPointer = -1;
           this.savedUndoSlot = -1;
           this.panels = [];
+          this.ui = {
+            panelSearch: "",
+            focusMode: true
+          };
           this.refreshTitle();
           this.setupCameraSpeedControl();
+          this.setupPanelNavigationControls();
           this.sidePanelDiv = document.getElementById("divSidePanel");
           this.viewer = new Viewer(this, document.getElementById("canvasMain"), this.cfg, this.currentKmpData);
           this.refreshPanels();
@@ -8186,6 +8193,65 @@ var KmpEditorWeb = (() => {
           input.value = this.cfg.cameraMovementSpeed.toFixed(2).replace(/\.?0+$/, "");
           input.onchange = () => applySpeed(input.value);
           input.onblur = () => applySpeed(input.value);
+        }
+        setupPanelNavigationControls() {
+          const sectionSelect = document.getElementById("selectSection");
+          const panelSearchInput = document.getElementById("inputPanelSearch");
+          const focusModeToggle = document.getElementById("toggleFocusMode");
+          if (sectionSelect != null) {
+            sectionSelect.onchange = () => {
+              const i = parseInt(sectionSelect.value);
+              if (isNaN(i) || i < 0 || i >= this.viewer.subviewers.length)
+                return;
+              this.viewer.setSubviewer(this.viewer.subviewers[i]);
+            };
+          }
+          if (panelSearchInput != null) {
+            panelSearchInput.oninput = () => {
+              this.ui.panelSearch = panelSearchInput.value.trim().toLowerCase();
+              this.applyPanelVisibility();
+            };
+          }
+          if (focusModeToggle != null) {
+            focusModeToggle.checked = this.ui.focusMode;
+            focusModeToggle.onchange = () => {
+              this.ui.focusMode = focusModeToggle.checked;
+              this.applyPanelVisibility();
+            };
+          }
+        }
+        updateSectionSelectOptions() {
+          const sectionSelect = document.getElementById("selectSection");
+          if (sectionSelect == null || this.viewer == null || this.viewer.subviewers == null)
+            return;
+          let selectedIndex = this.viewer.subviewers.findIndex((v) => v === this.viewer.currentSubviewer);
+          if (selectedIndex < 0)
+            selectedIndex = 0;
+          sectionSelect.innerHTML = "";
+          for (let i = 0; i < this.viewer.subviewers.length; i++) {
+            const subviewer = this.viewer.subviewers[i];
+            const option = document.createElement("option");
+            option.value = i;
+            option.text = subviewer != null && subviewer.panel != null ? subviewer.panel.name : "Section " + (i + 1);
+            sectionSelect.appendChild(option);
+          }
+          sectionSelect.value = selectedIndex.toString();
+        }
+        applyPanelVisibility() {
+          const activeName = this.viewer != null && this.viewer.currentSubviewer != null && this.viewer.currentSubviewer.panel != null ? this.viewer.currentSubviewer.panel.name : null;
+          const panelSearch = this.ui.panelSearch;
+          for (const panel of this.panels) {
+            const isModelPanel = panel.name == "Model";
+            const matchesSearch = panelSearch == "" || panel.name.toLowerCase().includes(panelSearch);
+            let visible = isModelPanel ? true : matchesSearch;
+            if (this.ui.focusMode && !isModelPanel)
+              visible = visible && panel.name == activeName;
+            panel.panelDiv.style.display = visible ? "block" : "none";
+          }
+        }
+        onSubviewerChanged(subviewer) {
+          this.updateSectionSelectOptions();
+          this.applyPanelVisibility();
         }
         bindToolbar() {
           const byId = (id) => document.getElementById(id);
@@ -8419,6 +8485,8 @@ var KmpEditorWeb = (() => {
           });
           this.refreshTitle();
           this.viewer.refreshPanels();
+          this.updateSectionSelectOptions();
+          this.applyPanelVisibility();
         }
         refreshTitle() {
           const title = (this.currentKmpFilename == null ? "[New File]" : "[" + this.currentKmpFilename + "]") + (this.currentNotSaved ? "*" : "") + " -- Lorenzi's KMP Editor v" + APP_VERSION;
@@ -8431,12 +8499,14 @@ var KmpEditorWeb = (() => {
           let panel = this.panels.find((p) => p.name == name);
           if (panel != null) {
             panel.clearContent();
+            this.applyPanelVisibility();
             return panel;
           }
           panel = new Panel(this, this.sidePanelDiv, name, open, onToggle, closable, () => {
             this.viewer.render();
           });
           this.panels.push(panel);
+          this.applyPanelVisibility();
           return panel;
         }
         setNotSaved() {

@@ -7,11 +7,15 @@
 	<style>
 		:root
 		{
-			--toolbar-bg: #1f2933;
-			--toolbar-fg: #f4f7fb;
-			--panel-bg: #eef1f4;
-			--panel-border: #ced6de;
-			--app-bg: #c7d2db;
+			--bg: #d7dee5;
+			--toolbar: #1e2a33;
+			--toolbar-border: #141b21;
+			--toolbar-fg: #f3f6f9;
+			--toolbar-muted: #b5c0cc;
+			--panel-bg: #edf2f7;
+			--panel-border: #c5d0db;
+			--card-bg: #ffffff;
+			--accent: #2f7db2;
 		}
 
 		html, body
@@ -23,36 +27,95 @@
 			height: 100%;
 			font-family: Segoe UI, Verdana, sans-serif;
 			overflow: hidden;
-			background: var(--app-bg);
+			background: linear-gradient(180deg, #dde4ea 0%, var(--bg) 100%);
 		}
 
 		#divToolbar
 		{
 			display: flex;
 			align-items: center;
-			gap: 0.5em;
+			gap: 0.6em;
 			padding: 0.45em 0.6em;
-			background: var(--toolbar-bg);
+			background: var(--toolbar);
 			color: var(--toolbar-fg);
-			border-bottom: 1px solid #111820;
+			border-bottom: 1px solid var(--toolbar-border);
 			flex-wrap: wrap;
+		}
+
+		.toolbarGroup
+		{
+			display: flex;
+			align-items: center;
+			gap: 0.35em;
+			padding-right: 0.55em;
+			border-right: 1px solid #34424f;
+		}
+
+		.toolbarGroup:last-of-type
+		{
+			border-right: none;
+		}
+
+		#divToolbar button,
+		#divToolbar select,
+		#divToolbar input
+		{
+			font-size: 0.8rem;
 		}
 
 		#divToolbar button
 		{
-			padding: 0.35em 0.6em;
-			font-size: 0.85rem;
+			padding: 0.3em 0.55em;
+			border: 1px solid #516171;
+			border-radius: 0.35em;
+			background: #2a3a47;
+			color: var(--toolbar-fg);
 			cursor: pointer;
+		}
+
+		#divToolbar button:hover
+		{
+			background: #334655;
+		}
+
+		.toolbarLabel
+		{
+			font-size: 0.75rem;
+			color: var(--toolbar-muted);
+		}
+
+		#selectSection
+		{
+			min-width: 10.8em;
+		}
+
+		#inputPanelSearch
+		{
+			width: 11.5em;
+		}
+
+		#toggleFocusMode
+		{
+			accent-color: var(--accent);
+		}
+
+		.toggleLabel
+		{
+			display: flex;
+			align-items: center;
+			gap: 0.3em;
+			font-size: 0.78rem;
 		}
 
 		#lblFileStatus
 		{
 			margin-left: auto;
-			font-size: 0.82rem;
+			font-size: 0.78rem;
+			color: #d7e2ec;
 			white-space: nowrap;
 			overflow: hidden;
 			text-overflow: ellipsis;
-			max-width: 42vw;
+			max-width: 34vw;
 		}
 
 		#divGrid
@@ -60,29 +123,8 @@
 			width: 100%;
 			height: calc(100% - 2.55em);
 			display: grid;
-			grid-template-columns: 18em auto;
+			grid-template-columns: 20em auto;
 			grid-template-rows: auto;
-		}
-
-		#cameraSpeedControl
-		{
-			position: fixed;
-			top: 3.05em;
-			right: 0.5em;
-			z-index: 1100;
-			display: flex;
-			align-items: center;
-			gap: 0.4em;
-			padding: 0.35em 0.45em;
-			border-radius: 0.4em;
-			background-color: rgba(238, 241, 244, 0.9);
-			border: 1px solid var(--panel-border);
-			font-size: 0.75em;
-		}
-
-		#inputCameraSpeed
-		{
-			width: 4.5em;
 		}
 
 		#divSidePanel
@@ -92,9 +134,10 @@
 			grid-row: 1;
 			background-color: var(--panel-bg);
 			border-right: 1px solid var(--panel-border);
-			font-size: 0.75em;
+			font-size: 0.76em;
 			overflow-x: hidden;
 			overflow-y: auto;
+			padding-bottom: 0.8em;
 		}
 
 		#canvasMain
@@ -106,38 +149,77 @@
 			outline: none;
 		}
 
+		#cameraSpeedControl
+		{
+			position: fixed;
+			top: 3.05em;
+			right: 0.6em;
+			z-index: 1100;
+			display: flex;
+			align-items: center;
+			gap: 0.45em;
+			padding: 0.35em 0.5em;
+			border-radius: 0.45em;
+			background-color: rgba(255, 255, 255, 0.92);
+			border: 1px solid var(--panel-border);
+			font-size: 0.76em;
+			box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+		}
+
+		#inputCameraSpeed
+		{
+			width: 4.6em;
+		}
+
 		.panel
 		{
-			width: 100%;
+			width: calc(100% - 0.8em);
+			margin: 0.4em;
+			background: var(--card-bg);
+			border: 1px solid var(--panel-border);
+			border-radius: 0.45em;
+			overflow: hidden;
+			box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 		}
 
 		.panelTitle
 		{
 			width: 100%;
-			height: 1.75em;
+			height: 2.2em;
+			text-align: left;
+			padding: 0 0.7em;
+			border: 0;
+			border-bottom: 1px solid #d6dde4;
+			background: #f5f8fb;
+			font-weight: 600;
+			cursor: pointer;
 		}
 
 		.panelContent
 		{
 			width: 100%;
+			background: #fff;
 		}
 
 		.panelRowElement
 		{
 			width: 100%;
-			padding: 0.25em;
+			padding: 0.3em 0.45em;
+			box-sizing: border-box;
 		}
 
 		.panelGroupTitle
 		{
-			font-weight: bold;
+			font-weight: 700;
+			color: #33424f;
 		}
 
 		.panelGroup
 		{
-			width: 100%;
-			margin: 0.25em;
-			padding: 0;
+			width: calc(100% - 0.4em);
+			margin: 0.2em;
+			padding: 0.15em 0;
+			border-top: 1px solid #edf1f4;
 		}
 
 		.panelCheckbox
@@ -146,41 +228,38 @@
 			margin-bottom: 0.05em;
 		}
 
-		.panelInputLabel
+		.panelInputLabel,
+		.panelNumericInputLabel
 		{
 			float: left;
-			width: 6em;
+			width: 7.1em;
 			margin-top: 0.15em;
-			margin-right: 0.25em;
+			margin-right: 0.3em;
 			text-align: right;
+			color: #4a5a69;
 		}
 
 		.panelNumericInputLabel
 		{
-			float: left;
-			width: 6em;
-			margin-top: 0.15em;
-			margin-right: 0.25em;
-			text-align: right;
 			cursor: ns-resize;
 			user-select: none;
 		}
 
 		.panelNumericInput
 		{
-			width: 10em;
+			width: 10.5em;
 		}
 
 		.panelSelect
 		{
-			width: 11em;
+			width: 11.5em;
 		}
 
-		@media (max-width: 1100px)
+		@media (max-width: 1150px)
 		{
 			#divGrid
 			{
-				grid-template-columns: 15em auto;
+				grid-template-columns: 17em auto;
 			}
 
 			#lblFileStatus
@@ -189,12 +268,12 @@
 			}
 		}
 
-		@media (max-width: 800px)
+		@media (max-width: 850px)
 		{
 			#divGrid
 			{
 				grid-template-columns: 100%;
-				grid-template-rows: 42% 58%;
+				grid-template-rows: 45% 55%;
 			}
 
 			#divSidePanel
@@ -211,29 +290,43 @@
 				grid-row: 2;
 			}
 
+			#cameraSpeedControl
+			{
+				top: 5em;
+			}
+
 			#lblFileStatus
 			{
 				margin-left: 0;
 				max-width: 100%;
 			}
-
-			#cameraSpeedControl
-			{
-				top: 4.9em;
-			}
 		}
 	</style>
 </head>
 <body>
-	<div id="divToolbar" role="toolbar" aria-label="File actions">
-		<button id="btnNewKmp" type="button" title="New (Ctrl/Cmd+N)">New</button>
-		<button id="btnOpenKmp" type="button" title="Open KMP (Ctrl/Cmd+O)">Open KMP</button>
-		<button id="btnOpenTrackFolder" type="button" title="Open track folder with course.kmp + course.kcl">Open Track Folder</button>
-		<button id="btnSaveKmp" type="button" title="Save (Ctrl/Cmd+S)">Save</button>
-		<button id="btnSaveKmpAs" type="button" title="Save As (Shift+Ctrl/Cmd+S)">Save As</button>
-		<button id="btnOpenModel" type="button" title="Load OBJ/BRRES/KCL">Open Model</button>
-		<button id="btnUndo" type="button" title="Undo (Ctrl/Cmd+Z)">Undo</button>
-		<button id="btnRedo" type="button" title="Redo (Shift+Ctrl/Cmd+Z)">Redo</button>
+	<div id="divToolbar" role="toolbar" aria-label="Editor actions">
+		<div class="toolbarGroup">
+			<button id="btnNewKmp" type="button">New</button>
+			<button id="btnOpenKmp" type="button">Open KMP</button>
+			<button id="btnOpenTrackFolder" type="button">Track Folder</button>
+			<button id="btnSaveKmp" type="button">Save</button>
+			<button id="btnSaveKmpAs" type="button">Save As</button>
+			<button id="btnOpenModel" type="button">Load Model</button>
+		</div>
+		<div class="toolbarGroup">
+			<button id="btnUndo" type="button">Undo</button>
+			<button id="btnRedo" type="button">Redo</button>
+		</div>
+		<div class="toolbarGroup">
+			<span class="toolbarLabel">Section</span>
+			<select id="selectSection"></select>
+			<span class="toolbarLabel">Search</span>
+			<input id="inputPanelSearch" type="search" placeholder="Filter sections...">
+			<label class="toggleLabel" for="toggleFocusMode">
+				<input id="toggleFocusMode" type="checkbox" checked>
+				Focus Mode
+			</label>
+		</div>
 		<div id="lblFileStatus" aria-live="polite">New File</div>
 	</div>
 

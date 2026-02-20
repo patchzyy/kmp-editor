@@ -210,6 +210,9 @@ class Viewer
 			this.currentSubviewer.refresh()
 			this.currentSubviewer.panel.setOpen(true)
 		}
+
+		if (this.window != null && this.window.onSubviewerChanged)
+			this.window.onSubviewerChanged(this.currentSubviewer)
 		
 		this.render()
 	}

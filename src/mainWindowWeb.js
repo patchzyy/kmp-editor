@@ -183,18 +183,24 @@ class MainWindow
 		this.currentKmpData = new KmpData()
 		this.currentNotSaved = false
 		
-		this.undoNeedsNewSlot = false
-		this.undoStack = []
-		this.undoPointer = -1
-		this.savedUndoSlot = -1
-		
-		this.panels = []
+			this.undoNeedsNewSlot = false
+			this.undoStack = []
+			this.undoPointer = -1
+			this.savedUndoSlot = -1
+			
+			this.panels = []
+			this.ui =
+			{
+				panelSearch: "",
+				focusMode: true
+			}
 
-		this.refreshTitle()
-		this.setupCameraSpeedControl()
+			this.refreshTitle()
+			this.setupCameraSpeedControl()
+			this.setupPanelNavigationControls()
 
-		this.sidePanelDiv = document.getElementById("divSidePanel")
-		this.viewer = new Viewer(this, document.getElementById("canvasMain"), this.cfg, this.currentKmpData)
+			this.sidePanelDiv = document.getElementById("divSidePanel")
+			this.viewer = new Viewer(this, document.getElementById("canvasMain"), this.cfg, this.currentKmpData)
 		this.refreshPanels()
 		
 		void this.newKmp(false)
@@ -250,6 +256,97 @@ class MainWindow
 		input.value = this.cfg.cameraMovementSpeed.toFixed(2).replace(/\.?0+$/, "")
 		input.onchange = () => applySpeed(input.value)
 		input.onblur = () => applySpeed(input.value)
+	}
+
+
+	setupPanelNavigationControls()
+	{
+		const sectionSelect = document.getElementById("selectSection")
+		const panelSearchInput = document.getElementById("inputPanelSearch")
+		const focusModeToggle = document.getElementById("toggleFocusMode")
+
+		if (sectionSelect != null)
+		{
+			sectionSelect.onchange = () =>
+			{
+				const i = parseInt(sectionSelect.value)
+				if (isNaN(i) || i < 0 || i >= this.viewer.subviewers.length)
+					return
+
+				this.viewer.setSubviewer(this.viewer.subviewers[i])
+			}
+		}
+
+		if (panelSearchInput != null)
+		{
+			panelSearchInput.oninput = () =>
+			{
+				this.ui.panelSearch = panelSearchInput.value.trim().toLowerCase()
+				this.applyPanelVisibility()
+			}
+		}
+
+		if (focusModeToggle != null)
+		{
+			focusModeToggle.checked = this.ui.focusMode
+			focusModeToggle.onchange = () =>
+			{
+				this.ui.focusMode = focusModeToggle.checked
+				this.applyPanelVisibility()
+			}
+		}
+	}
+
+
+	updateSectionSelectOptions()
+	{
+		const sectionSelect = document.getElementById("selectSection")
+		if (sectionSelect == null || this.viewer == null || this.viewer.subviewers == null)
+			return
+
+		let selectedIndex = this.viewer.subviewers.findIndex(v => v === this.viewer.currentSubviewer)
+		if (selectedIndex < 0)
+			selectedIndex = 0
+
+		sectionSelect.innerHTML = ""
+		for (let i = 0; i < this.viewer.subviewers.length; i++)
+		{
+			const subviewer = this.viewer.subviewers[i]
+			const option = document.createElement("option")
+			option.value = i
+			option.text = (subviewer != null && subviewer.panel != null ? subviewer.panel.name : "Section " + (i + 1))
+			sectionSelect.appendChild(option)
+		}
+
+		sectionSelect.value = selectedIndex.toString()
+	}
+
+
+	applyPanelVisibility()
+	{
+		const activeName = (this.viewer != null && this.viewer.currentSubviewer != null && this.viewer.currentSubviewer.panel != null)
+			? this.viewer.currentSubviewer.panel.name
+			: null
+		const panelSearch = this.ui.panelSearch
+
+		for (const panel of this.panels)
+		{
+			const isModelPanel = (panel.name == "Model")
+			const matchesSearch = (panelSearch == "" || panel.name.toLowerCase().includes(panelSearch))
+			let visible = (isModelPanel ? true : matchesSearch)
+
+			if (this.ui.focusMode && !isModelPanel)
+				visible = visible && (panel.name == activeName)
+
+			panel.panelDiv.style.display = (visible ? "block" : "none")
+		}
+	}
+
+
+	onSubviewerChanged(subviewer)
+	{
+		this.updateSectionSelectOptions()
+		this.applyPanelVisibility()
 	}
 
 
@@ -488,11 +585,13 @@ class MainWindow
 		panel.addCheckbox(moveGroup, "Snap to collision", this.cfg.snapToCollision, (x) => { this.cfg.snapToCollision = x; if (x) this.cfg.unlockAxes(); this.refreshPanels() })
 		panel.addCheckbox(moveGroup, "Lock X axis", this.cfg.lockAxisX, (x) => { this.cfg.lockAxisX = x; if (x) this.cfg.snapToCollision = false; this.refreshPanels() })
 		panel.addCheckbox(moveGroup, "Lock Y axis", this.cfg.lockAxisY, (x) => { this.cfg.lockAxisY = x; if (x) this.cfg.snapToCollision = false; this.refreshPanels() })
-		panel.addCheckbox(moveGroup, "Lock Z axis", this.cfg.lockAxisZ, (x) => { this.cfg.lockAxisZ = x; if (x) this.cfg.snapToCollision = false; this.refreshPanels() })
-		
-		this.refreshTitle()
-		this.viewer.refreshPanels()
-	}
+			panel.addCheckbox(moveGroup, "Lock Z axis", this.cfg.lockAxisZ, (x) => { this.cfg.lockAxisZ = x; if (x) this.cfg.snapToCollision = false; this.refreshPanels() })
+			
+			this.refreshTitle()
+			this.viewer.refreshPanels()
+			this.updateSectionSelectOptions()
+			this.applyPanelVisibility()
+		}
 	
 	
 	refreshTitle()
@@ -516,11 +615,13 @@ class MainWindow
 		if (panel != null)
 		{
 			panel.clearContent()
+			this.applyPanelVisibility()
 			return panel
 		}
 		
 		panel = new Panel(this, this.sidePanelDiv, name, open, onToggle, closable, () => { this.viewer.render() })
 		this.panels.push(panel)
+		this.applyPanelVisibility()
 		return panel
 	}
 	

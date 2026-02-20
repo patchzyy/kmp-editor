@@ -1,156 +1,287 @@
 <!DOCTYPE html>
-
-
 <html>
-
 	<head>
 		<title></title>
 		<meta charset="UTF-8">
+		<style>
+			:root
+			{
+				--bg: #d7dee5;
+				--toolbar: #1e2a33;
+				--toolbar-border: #141b21;
+				--toolbar-fg: #f3f6f9;
+				--toolbar-muted: #b5c0cc;
+				--panel-bg: #edf2f7;
+				--panel-border: #c5d0db;
+				--card-bg: #ffffff;
+				--accent: #2f7db2;
+			}
+
+			html, body
+			{
+				margin: 0;
+				border: 0;
+				padding: 0;
+				width: 100%;
+				height: 100%;
+				font-family: Segoe UI, Verdana, sans-serif;
+				overflow: hidden;
+				background: linear-gradient(180deg, #dde4ea 0%, var(--bg) 100%);
+			}
+
+			#divToolbar
+			{
+				display: flex;
+				align-items: center;
+				gap: 0.6em;
+				padding: 0.45em 0.6em;
+				background: var(--toolbar);
+				color: var(--toolbar-fg);
+				border-bottom: 1px solid var(--toolbar-border);
+				flex-wrap: wrap;
+			}
+
+			.toolbarGroup
+			{
+				display: flex;
+				align-items: center;
+				gap: 0.35em;
+				padding-right: 0.55em;
+				border-right: 1px solid #34424f;
+			}
+
+			.toolbarGroup:last-of-type
+			{
+				border-right: none;
+			}
+
+			#divToolbar button,
+			#divToolbar select,
+			#divToolbar input
+			{
+				font-size: 0.8rem;
+			}
+
+			#divToolbar button
+			{
+				padding: 0.3em 0.55em;
+				border: 1px solid #516171;
+				border-radius: 0.35em;
+				background: #2a3a47;
+				color: var(--toolbar-fg);
+				cursor: pointer;
+			}
+
+			#divToolbar button:hover
+			{
+				background: #334655;
+			}
+
+			.toolbarLabel
+			{
+				font-size: 0.75rem;
+				color: var(--toolbar-muted);
+			}
+
+			#selectSection
+			{
+				min-width: 10.8em;
+			}
+
+			#inputPanelSearch
+			{
+				width: 11.5em;
+			}
+
+			#toggleFocusMode
+			{
+				accent-color: var(--accent);
+			}
+
+			.toggleLabel
+			{
+				display: flex;
+				align-items: center;
+				gap: 0.3em;
+				font-size: 0.78rem;
+			}
+
+			#lblFileStatus
+			{
+				margin-left: auto;
+				font-size: 0.78rem;
+				color: #d7e2ec;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				max-width: 38vw;
+			}
+
+			#divGrid
+			{
+				width: 100%;
+				height: calc(100% - 2.55em);
+				display: grid;
+				grid-template-columns: 20em auto;
+				grid-template-rows: auto;
+			}
+
+			#divSidePanel
+			{
+				width: 100%;
+				grid-column: 1;
+				grid-row: 1;
+				background-color: var(--panel-bg);
+				border-right: 1px solid var(--panel-border);
+				font-size: 0.76em;
+				overflow-x: hidden;
+				overflow-y: auto;
+				padding-bottom: 0.8em;
+			}
+
+			#canvasMain
+			{
+				width: 100%;
+				height: 100%;
+				grid-column: 2;
+				grid-row: 1;
+				outline: none;
+			}
+
+			#cameraSpeedControl
+			{
+				position: fixed;
+				top: 3.05em;
+				right: 0.6em;
+				z-index: 1100;
+				display: flex;
+				align-items: center;
+				gap: 0.45em;
+				padding: 0.35em 0.5em;
+				border-radius: 0.45em;
+				background-color: rgba(255, 255, 255, 0.92);
+				border: 1px solid var(--panel-border);
+				font-size: 0.76em;
+				box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+			}
+
+			#inputCameraSpeed
+			{
+				width: 4.6em;
+			}
+
+			.panel
+			{
+				width: calc(100% - 0.8em);
+				margin: 0.4em;
+				background: var(--card-bg);
+				border: 1px solid var(--panel-border);
+				border-radius: 0.45em;
+				overflow: hidden;
+				box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+			}
+
+			.panelTitle
+			{
+				width: 100%;
+				height: 2.2em;
+				text-align: left;
+				padding: 0 0.7em;
+				border: 0;
+				border-bottom: 1px solid #d6dde4;
+				background: #f5f8fb;
+				font-weight: 600;
+				cursor: pointer;
+			}
+
+			.panelContent
+			{
+				width: 100%;
+				background: #fff;
+			}
+
+			.panelRowElement
+			{
+				width: 100%;
+				padding: 0.3em 0.45em;
+				box-sizing: border-box;
+			}
+
+			.panelGroupTitle
+			{
+				font-weight: 700;
+				color: #33424f;
+			}
+
+			.panelGroup
+			{
+				width: calc(100% - 0.4em);
+				margin: 0.2em;
+				padding: 0.15em 0;
+				border-top: 1px solid #edf1f4;
+			}
+
+			.panelCheckbox
+			{
+				margin-top: 0.2em;
+				margin-bottom: 0.05em;
+			}
+
+			.panelInputLabel,
+			.panelNumericInputLabel
+			{
+				float: left;
+				width: 7.1em;
+				margin-top: 0.15em;
+				margin-right: 0.3em;
+				text-align: right;
+				color: #4a5a69;
+			}
+
+			.panelNumericInputLabel
+			{
+				cursor: ns-resize;
+				user-select: none;
+			}
+
+			.panelNumericInput
+			{
+				width: 10.5em;
+			}
+
+			.panelSelect
+			{
+				width: 11.5em;
+			}
+		</style>
 	</head>
 	
-	<style>
-		html, body
-		{
-			margin: 0;
-			border: 0;
-			padding: 0;
-			width: 100%;
-			height: 100%;
-			font-family: Segoe UI, Verdana, sans-serif;
-			overflow: hidden;
-		}
-		
-		#divGrid
-		{
-			width: 100%;
-			height: 100%;
-			display: grid;
-			grid-template-columns: 18em auto;
-			grid-template-rows: auto;
-		}
-		
-		#divSidePanel
-		{
-			width: 100%;
-			grid-column: 1;
-			grid-row: 1;
-			background-color: #eee;
-			font-size: 0.75em;
-			overflow-x: hidden;
-			overflow-y: visible;
-		}
-		
-		#canvasMain
-		{
-			width: 100%;
-			height: 100%;
-			grid-column: 2;
-			grid-row: 1;
-		}
-
-		#cameraSpeedControl
-		{
-			position: fixed;
-			top: 0.5em;
-			right: 0.5em;
-			z-index: 1000;
-			display: flex;
-			align-items: center;
-			gap: 0.4em;
-			padding: 0.35em 0.45em;
-			border-radius: 0.4em;
-			background-color: rgba(238, 238, 238, 0.9);
-			border: 1px solid #ccc;
-			font-size: 0.75em;
-		}
-
-		#inputCameraSpeed
-		{
-			width: 4.5em;
-		}
-		
-		.panel
-		{
-			width: 100%;
-		}
-		
-		.panelTitle
-		{
-			width: 100%;
-			height: 1.75em;
-		}
-		
-		.panelContent
-		{
-			width: 100%;
-		}
-		
-		.panelRowElement
-		{
-			width: 100%;
-			padding: 0.25em;
-		}
-		
-		.panelGroupTitle
-		{
-			font-weight: bold;
-		}
-		
-		.panelGroup
-		{
-			width: 100%;
-			margin: 0.25em;
-			padding: 0;
-		}
-		
-		.panelLabel
-		{
-		
-		}
-		
-		.panelButton
-		{
-			
-		}
-		
-		.panelCheckbox
-		{
-			margin-top: 0.2em;
-			margin-bottom: 0.05em;
-		}
-		
-		.panelInputLabel
-		{
-			float: left;
-			width: 6em;
-			margin-top: 0.15em;
-			margin-right: 0.25em;
-			text-align: right;
-		}
-		
-		.panelNumericInputLabel
-		{
-			float: left;
-			width: 6em;
-			margin-top: 0.15em;
-			margin-right: 0.25em;
-			text-align: right;
-			cursor: ns-resize;
-			user-select: none;
-		}
-		
-		.panelNumericInput
-		{
-			width: 10em;
-		}
-		
-		.panelSelect
-		{
-			width: 11em;
-		}
-	</style>
-	
 	<body onload="main()">
+		<div id="divToolbar" role="toolbar" aria-label="Editor actions">
+			<div class="toolbarGroup">
+				<button id="btnNewKmp" type="button">New</button>
+				<button id="btnOpenKmp" type="button">Open</button>
+				<button id="btnSaveKmp" type="button">Save</button>
+				<button id="btnSaveKmpAs" type="button">Save As</button>
+				<button id="btnOpenModel" type="button">Load Model</button>
+			</div>
+			<div class="toolbarGroup">
+				<button id="btnUndo" type="button">Undo</button>
+				<button id="btnRedo" type="button">Redo</button>
+			</div>
+			<div class="toolbarGroup">
+				<span class="toolbarLabel">Section</span>
+				<select id="selectSection"></select>
+				<span class="toolbarLabel">Search</span>
+				<input id="inputPanelSearch" type="search" placeholder="Filter sections...">
+				<label class="toggleLabel" for="toggleFocusMode">
+					<input id="toggleFocusMode" type="checkbox" checked>
+					Focus Mode
+				</label>
+			</div>
+			<div id="lblFileStatus">New File</div>
+		</div>
+
 		<div id="divGrid">
 			<div id="divSidePanel"></div>
 			<canvas id="canvasMain"></canvas>
@@ -165,5 +296,4 @@
 			const { main } = require("./src/mainWindow.js")
 		</script>
 	</body>
-	
 </html>
