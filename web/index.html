@@ -64,6 +64,27 @@
 			grid-template-rows: auto;
 		}
 
+		#cameraSpeedControl
+		{
+			position: fixed;
+			top: 3.05em;
+			right: 0.5em;
+			z-index: 1100;
+			display: flex;
+			align-items: center;
+			gap: 0.4em;
+			padding: 0.35em 0.45em;
+			border-radius: 0.4em;
+			background-color: rgba(238, 241, 244, 0.9);
+			border: 1px solid var(--panel-border);
+			font-size: 0.75em;
+		}
+
+		#inputCameraSpeed
+		{
+			width: 4.5em;
+		}
+
 		#divSidePanel
 		{
 			width: 100%;
@@ -195,6 +216,11 @@
 				margin-left: 0;
 				max-width: 100%;
 			}
+
+			#cameraSpeedControl
+			{
+				top: 4.9em;
+			}
 		}
 	</style>
 </head>
@@ -214,6 +240,11 @@
 	<div id="divGrid">
 		<div id="divSidePanel"></div>
 		<canvas id="canvasMain" tabindex="0"></canvas>
+	</div>
+
+	<div id="cameraSpeedControl">
+		<label for="inputCameraSpeed">Cam Speed</label>
+		<input id="inputCameraSpeed" type="number" min="0.1" max="10" step="0.1" value="0.5">
 	</div>
 
 	<script src="./app.js"></script>

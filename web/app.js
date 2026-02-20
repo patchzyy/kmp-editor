@@ -5288,6 +5288,7 @@ var KmpEditorWeb = (() => {
           if (move.magn() <= 1e-4)
             return false;
           let speed = Math.max(2e3, this.cameraDist * 3);
+          speed *= this.cfg.cameraMovementSpeed == null ? 0.5 : this.cfg.cameraMovementSpeed;
           if (this.keysDown["ShiftLeft"] || this.keysDown["ShiftRight"])
             speed *= 2.5;
           this.cameraFocus = this.cameraFocus.add(move.normalize().scale(speed * dt));
@@ -8095,6 +8096,7 @@ var KmpEditorWeb = (() => {
           this.cfg = {
             isBattleTrack: false,
             useOrthoProjection: false,
+            cameraMovementSpeed: 0.5,
             pointScale: 1,
             shadingFactor: 0.3,
             fogFactor: 25e-7,
@@ -8147,6 +8149,7 @@ var KmpEditorWeb = (() => {
           this.savedUndoSlot = -1;
           this.panels = [];
           this.refreshTitle();
+          this.setupCameraSpeedControl();
           this.sidePanelDiv = document.getElementById("divSidePanel");
           this.viewer = new Viewer(this, document.getElementById("canvasMain"), this.cfg, this.currentKmpData);
           this.refreshPanels();
@@ -8167,6 +8170,22 @@ var KmpEditorWeb = (() => {
         }
         openExternalLink(link) {
           window.open(link, "_blank", "noopener,noreferrer");
+        }
+        setupCameraSpeedControl() {
+          let input = document.getElementById("inputCameraSpeed");
+          if (input == null)
+            return;
+          let applySpeed = (valueRaw) => {
+            let value = parseFloat(valueRaw);
+            if (isNaN(value) || !isFinite(value))
+              value = this.cfg.cameraMovementSpeed;
+            value = Math.max(0.1, Math.min(10, value));
+            this.cfg.cameraMovementSpeed = value;
+            input.value = value.toFixed(2).replace(/\.?0+$/, "");
+          };
+          input.value = this.cfg.cameraMovementSpeed.toFixed(2).replace(/\.?0+$/, "");
+          input.onchange = () => applySpeed(input.value);
+          input.onblur = () => applySpeed(input.value);
         }
         bindToolbar() {
           const byId = (id) => document.getElementById(id);

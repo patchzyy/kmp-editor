@@ -390,6 +390,7 @@ class Viewer
 			return false
 		
 		let speed = Math.max(2000, this.cameraDist * 3)
+		speed *= (this.cfg.cameraMovementSpeed == null ? 0.5 : this.cfg.cameraMovementSpeed)
 		if (this.keysDown["ShiftLeft"] || this.keysDown["ShiftRight"])
 			speed *= 2.5
 		

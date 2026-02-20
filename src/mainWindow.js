@@ -94,13 +94,14 @@ class MainWindow
 		
 		this.noModelLoaded = true
 		
-		this.cfg =
-		{
-			isBattleTrack: false,
-			useOrthoProjection: false,
-			pointScale: 1,
-			shadingFactor: 0.3,
-			fogFactor: 0.0000025,
+			this.cfg =
+			{
+				isBattleTrack: false,
+				useOrthoProjection: false,
+				cameraMovementSpeed: 0.5,
+				pointScale: 1,
+				shadingFactor: 0.3,
+				fogFactor: 0.0000025,
 
 			kclEnableModel: true,
 			kclEnableColors: true,
@@ -169,12 +170,13 @@ class MainWindow
 		this.undoPointer = -1
 		this.savedUndoSlot = -1
 		
-		this.panels = []
+			this.panels = []
 
-		this.refreshTitle()
+			this.refreshTitle()
+			this.setupCameraSpeedControl()
 
-		this.sidePanelDiv = document.getElementById("divSidePanel")
-		this.viewer = new Viewer(this, document.getElementById("canvasMain"), this.cfg, this.currentKmpData)
+			this.sidePanelDiv = document.getElementById("divSidePanel")
+			this.viewer = new Viewer(this, document.getElementById("canvasMain"), this.cfg, this.currentKmpData)
 		this.refreshPanels()
 		
 		this.newKmp()
@@ -227,6 +229,29 @@ class MainWindow
 	openExternalLink(link)
 	{
 		shell.openExternal(link)
+	}
+
+
+	setupCameraSpeedControl()
+	{
+		let input = document.getElementById("inputCameraSpeed")
+		if (input == null)
+			return
+
+		let applySpeed = (valueRaw) =>
+		{
+			let value = parseFloat(valueRaw)
+			if (isNaN(value) || !isFinite(value))
+				value = this.cfg.cameraMovementSpeed
+
+			value = Math.max(0.1, Math.min(10, value))
+			this.cfg.cameraMovementSpeed = value
+			input.value = value.toFixed(2).replace(/\.?0+$/, "")
+		}
+
+		input.value = this.cfg.cameraMovementSpeed.toFixed(2).replace(/\.?0+$/, "")
+		input.onchange = () => applySpeed(input.value)
+		input.onblur = () => applySpeed(input.value)
 	}
 	
 	
