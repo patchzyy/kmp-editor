@@ -58,7 +58,7 @@ class SzsArchive
 	static make(entries, compress = true)
 	{
 		let u8 = SzsArchive.buildU8(entries)
-		return (compress ? SzsArchive.encodeYaz0LiteralOnly(u8) : u8)
+		return (compress ? SzsArchive.encodeYaz0(u8) : u8)
 	}
 
 
@@ -400,23 +400,129 @@ class SzsArchive
 	}
 
 
-	static encodeYaz0LiteralOnly(bytes)
+	static encodeYaz0(bytes)
 	{
 		let input = (bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes))
-		let out = []
+		const inputSize = input.length
+		const out = []
 		out.push(0x59, 0x61, 0x7a, 0x30)
-
-		let size = input.length >>> 0
-		out.push((size >>> 24) & 0xff, (size >>> 16) & 0xff, (size >>> 8) & 0xff, size & 0xff)
+		out.push((inputSize >>> 24) & 0xff, (inputSize >>> 16) & 0xff, (inputSize >>> 8) & 0xff, inputSize & 0xff)
 		out.push(0, 0, 0, 0, 0, 0, 0, 0)
 
-		let pos = 0
-		while (pos < input.length)
+		if (inputSize <= 0)
+			return new Uint8Array(out)
+
+		const HASH_SIZE = 1 << 16
+		const MIN_MATCH = 3
+		const MAX_MATCH = 0x111
+		const MAX_DIST = 0x1000
+		const MAX_CHAIN = 128
+
+		let head = new Int32Array(HASH_SIZE)
+		let prev = new Int32Array(inputSize)
+		head.fill(-1)
+		prev.fill(-1)
+
+		const hashAt = (pos) =>
 		{
-			let count = Math.min(8, input.length - pos)
-			out.push(0xff)
-			for (let i = 0; i < count; i++)
-				out.push(input[pos++])
+			return (((input[pos + 0] << 8) ^ (input[pos + 1] << 4) ^ input[pos + 2]) & (HASH_SIZE - 1))
+		}
+
+		const insertPosition = (pos) =>
+		{
+			if (pos + 2 >= inputSize)
+				return
+
+			let hash = hashAt(pos)
+			prev[pos] = head[hash]
+			head[hash] = pos
+		}
+
+		const findLongestMatch = (pos) =>
+		{
+			if (pos + 2 >= inputSize)
+				return { length: 0, distance: 0 }
+
+			let bestLength = 0
+			let bestDistance = 0
+			let maxLength = Math.min(MAX_MATCH, inputSize - pos)
+			let hash = hashAt(pos)
+			let candidate = head[hash]
+			let lowerBound = Math.max(0, pos - MAX_DIST)
+			let searched = 0
+
+			while (candidate >= lowerBound && candidate >= 0 && searched < MAX_CHAIN)
+			{
+				if (input[candidate + bestLength] == input[pos + bestLength])
+				{
+					let length = 0
+					while (length < maxLength && input[candidate + length] == input[pos + length])
+						length += 1
+
+					if (length > bestLength)
+					{
+						bestLength = length
+						bestDistance = pos - candidate
+						if (bestLength == maxLength)
+							break
+					}
+				}
+
+				candidate = prev[candidate]
+				searched += 1
+			}
+
+			if (bestLength < MIN_MATCH)
+				return { length: 0, distance: 0 }
+
+			return { length: bestLength, distance: bestDistance }
+		}
+
+		let pos = 0
+		while (pos < inputSize)
+		{
+			let groupHeaderPos = out.length
+			let groupHeader = 0
+			out.push(0)
+
+			for (let chunk = 0; chunk < 8 && pos < inputSize; chunk++)
+			{
+				let match = findLongestMatch(pos)
+
+				if (match.length >= MIN_MATCH)
+				{
+					let dist = (match.distance - 1) & 0xfff
+					let length = match.length
+
+					if (length >= 0x12)
+					{
+						out.push((dist >>> 8) & 0x0f)
+						out.push(dist & 0xff)
+						out.push((length - 0x12) & 0xff)
+					}
+					else
+					{
+						out.push((((length - 2) & 0x0f) << 4) | ((dist >>> 8) & 0x0f))
+						out.push(dist & 0xff)
+					}
+
+					let end = pos + length
+					while (pos < end)
+					{
+						insertPosition(pos)
+						pos += 1
+					}
+				}
+				else
+				{
+					groupHeader |= (0x80 >>> chunk)
+					out.push(input[pos])
+					insertPosition(pos)
+					pos += 1
+				}
+			}
+
+			out[groupHeaderPos] = groupHeader
 		}
 
 		return new Uint8Array(out)
