@@ -668,48 +668,51 @@ class ViewerObjects extends PointViewer
 			else
 				panel.addSelectionNumericInput(selectionGroup, "Setting " + (s + 1), 0, 0xffff, selectedPoints.map(p => p.settings[s]), 1.0, 1.0, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].settings[s] = x })
 
-		panel.addSpacer(selectionGroup)
-		panel.addText(selectionGroup, "<strong>Conditional Objects (Presence Flags bits 3-11, Padding for Lap Progress %):</strong>")
-		panel.addSelectionDropdown(selectionGroup, "Cond. Mode", selectedPoints.map(p => p.condMode || 0), conditionalModeOptions, enabled, multiedit, (x, i) => {
-			this.window.setNotSaved()
-			selectedPoints[i].condMode = x
-		})
-		panel.addSelectionNumericInput(selectionGroup, "Cond. Start", 0, 8, selectedPoints.map(p => getCondDisplayStart(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
-			this.window.setNotSaved()
-			let mode = selectedPoints[i].condMode || 0
-			if (mode == 0) { selectedPoints[i].condMode = 1; mode = 1 }
-			selectedPoints[i].condStart = condDisplayToRaw(mode, x)
-		})
-		panel.addSelectionNumericInput(selectionGroup, "Cond. End", 0, 8, selectedPoints.map(p => getCondDisplayEnd(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
-			this.window.setNotSaved()
-			let mode = selectedPoints[i].condMode || 0
-			if (mode == 0) { selectedPoints[i].condMode = 1; mode = 1 }
-			selectedPoints[i].condEnd = condDisplayToRaw(mode, x)
-		})
-		panel.addSelectionNumericInput(selectionGroup, "Cond. Start %", 0, 100, selectedPoints.map(p => getCondProgressStartPercent(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
-			this.window.setNotSaved()
-			let mode = selectedPoints[i].condMode || 0
-			if (!isLapProgressCondMode(mode))
-				selectedPoints[i].condMode = 5
-			setCondProgressStartPercent(selectedPoints[i], x)
-		})
-		panel.addSelectionNumericInput(selectionGroup, "Cond. End %", 0, 100, selectedPoints.map(p => getCondProgressEndPercent(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
-			this.window.setNotSaved()
-			let mode = selectedPoints[i].condMode || 0
-			if (!isLapProgressCondMode(mode))
-				selectedPoints[i].condMode = 5
-			setCondProgressEndPercent(selectedPoints[i], x)
-		})
-		if (enabled && selectedPoints.length > 0)
+		if (this.viewer.cfg.enableRrFeatures)
 		{
-			let first = selectedPoints[0]
-			let allSame = selectedPoints.every(p => (p.condMode || 0) === (first.condMode || 0) && (p.condStart || 0) === (first.condStart || 0) && (p.condEnd || 0) === (first.condEnd || 0))
-			if (allSame && isLapProgressCondMode(first.condMode || 0))
-				allSame = selectedPoints.every(p => getCondProgressStartPercent(p) === getCondProgressStartPercent(first) && getCondProgressEndPercent(p) === getCondProgressEndPercent(first))
-			if (allSame)
-				panel.addText(selectionGroup, describeConditional(first))
-			else
-				panel.addText(selectionGroup, "<strong>Conditional State:</strong> Multiple selected objects have different conditional values")
+			panel.addSpacer(selectionGroup)
+			panel.addText(selectionGroup, "<strong>Conditional Objects (Presence Flags bits 3-11, Padding for Lap Progress %):</strong>")
+			panel.addSelectionDropdown(selectionGroup, "Cond. Mode", selectedPoints.map(p => p.condMode || 0), conditionalModeOptions, enabled, multiedit, (x, i) => {
+				this.window.setNotSaved()
+				selectedPoints[i].condMode = x
+			})
+			panel.addSelectionNumericInput(selectionGroup, "Cond. Start", 0, 8, selectedPoints.map(p => getCondDisplayStart(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
+				this.window.setNotSaved()
+				let mode = selectedPoints[i].condMode || 0
+				if (mode == 0) { selectedPoints[i].condMode = 1; mode = 1 }
+				selectedPoints[i].condStart = condDisplayToRaw(mode, x)
+			})
+			panel.addSelectionNumericInput(selectionGroup, "Cond. End", 0, 8, selectedPoints.map(p => getCondDisplayEnd(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
+				this.window.setNotSaved()
+				let mode = selectedPoints[i].condMode || 0
+				if (mode == 0) { selectedPoints[i].condMode = 1; mode = 1 }
+				selectedPoints[i].condEnd = condDisplayToRaw(mode, x)
+			})
+			panel.addSelectionNumericInput(selectionGroup, "Cond. Start %", 0, 100, selectedPoints.map(p => getCondProgressStartPercent(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
+				this.window.setNotSaved()
+				let mode = selectedPoints[i].condMode || 0
+				if (!isLapProgressCondMode(mode))
+					selectedPoints[i].condMode = 5
+				setCondProgressStartPercent(selectedPoints[i], x)
+			})
+			panel.addSelectionNumericInput(selectionGroup, "Cond. End %", 0, 100, selectedPoints.map(p => getCondProgressEndPercent(p)), 1.0, 1.0, enabled, multiedit, (x, i) => {
+				this.window.setNotSaved()
+				let mode = selectedPoints[i].condMode || 0
+				if (!isLapProgressCondMode(mode))
+					selectedPoints[i].condMode = 5
+				setCondProgressEndPercent(selectedPoints[i], x)
+			})
+			if (enabled && selectedPoints.length > 0)
+			{
+				let first = selectedPoints[0]
+				let allSame = selectedPoints.every(p => (p.condMode || 0) === (first.condMode || 0) && (p.condStart || 0) === (first.condStart || 0) && (p.condEnd || 0) === (first.condEnd || 0))
+				if (allSame && isLapProgressCondMode(first.condMode || 0))
+					allSame = selectedPoints.every(p => getCondProgressStartPercent(p) === getCondProgressStartPercent(first) && getCondProgressEndPercent(p) === getCondProgressEndPercent(first))
+				if (allSame)
+					panel.addText(selectionGroup, describeConditional(first))
+				else
+					panel.addText(selectionGroup, "<strong>Conditional State:</strong> Multiple selected objects have different conditional values")
+			}
 		}
 
 		panel.addSpacer(selectionGroup)
