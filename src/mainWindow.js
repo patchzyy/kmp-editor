@@ -1215,6 +1215,79 @@ class Panel
 		
 		return input
 	}
+
+
+	addSelectionTextInput(group, str, values = "", enabled = true, multiedit = false, onchange = null, modify = null)
+	{
+		let div = document.createElement("div")
+		div.className = "panelRowElement"
+
+		let label = document.createElement("label")
+		div.appendChild(label)
+
+		if (!(values instanceof Array))
+			values = [values]
+
+		if (onchange == null)
+			onchange = (x, i) => { }
+
+		if (modify == null)
+			modify = (x) => { return x }
+
+		let input = document.createElement("input")
+		input.className = "panelNumericInput"
+		input.type = "input"
+		input.value = (enabled && values.every(v => v === values[0]) ? modify(values[0]) : "")
+		input.disabled = !enabled
+		input.lastInput = input.value
+
+		let inFocus = false
+		input.onfocus = () => { inFocus = true; this.window.setUndoPoint() }
+		input.onblur = () =>
+		{
+			inFocus = false
+			this.window.setUndoPoint()
+			this.window.viewer.canvas.focus()
+			input.value = modify(input.lastInput)
+		}
+		input.onkeydown = (ev) =>
+		{
+			if (inFocus)
+			{
+				if (ev.key === "Enter")
+					input.value = modify(input.lastInput)
+				else
+					ev.stopPropagation()
+			}
+		}
+
+		input.oninput = () =>
+		{
+			if (!enabled)
+				return
+
+			let value = modify(input.value)
+			for (let i = 0; i < values.length; i++)
+				onchange(value, i)
+
+			input.lastInput = value
+			this.onRefreshView()
+		}
+
+		let text = document.createElement("div")
+		text.className = "panelNumericInputLabel"
+		text.innerHTML = str
+
+		label.appendChild(text)
+		label.appendChild(input)
+
+		if (group == null)
+			this.contentDiv.appendChild(div)
+		else
+			group.appendChild(div)
+
+		return input
+	}
 	
 	
 	addSelectionDropdown(group, str, values = 0, options = [], enabled = true, multiedit = false, onchange = null)

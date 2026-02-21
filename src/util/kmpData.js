@@ -340,6 +340,13 @@ class KmpData
 		for (let i = 0; i < enemyPaths.length; i++)
 		{
 			let kmpPath = enemyPaths[i]
+			let pathRule = (kmpPath.unknown || 0) & 0xffff
+
+			for (let p = kmpPath.startIndex; p < kmpPath.startIndex + kmpPath.pointNum; p++)
+			{
+				if (p >= 0 && p < data.enemyPoints.nodes.length)
+					data.enemyPoints.nodes[p].routeGroupCondition = pathRule
+			}
 		
 			for (let p = kmpPath.startIndex; p < kmpPath.startIndex + kmpPath.pointNum - 1; p++)
 			{
@@ -374,6 +381,13 @@ class KmpData
 		for (let i = 0; i < itemPaths.length; i++)
 		{
 			let kmpPath = itemPaths[i]
+			let pathRule = (kmpPath.padding || 0) & 0xffff
+
+			for (let p = kmpPath.startIndex; p < kmpPath.startIndex + kmpPath.pointNum; p++)
+			{
+				if (p >= 0 && p < data.itemPoints.nodes.length)
+					data.itemPoints.nodes[p].routeGroupCondition = pathRule
+			}
 		
 			for (let p = kmpPath.startIndex; p < kmpPath.startIndex + kmpPath.pointNum - 1; p++)
 				data.itemPoints.linkNodes(data.itemPoints.nodes[p], data.itemPoints.nodes[p + 1])
@@ -542,6 +556,18 @@ class KmpData
 		let enemyPaths = this.enemyPoints.convertToStorageFormat(asBattle)
 		let enemyPoints = []
 		enemyPaths.forEach(path => path.nodes.forEach(node => enemyPoints.push(node)))
+
+		const getPathRouteCondition = (path) =>
+		{
+			if (path == null || path.nodes == null || path.nodes.length == 0)
+				return 0
+			
+			let value = path.nodes[0].routeGroupCondition
+			if (value == null || !isFinite(value))
+				value = 0
+			
+			return value & 0xffff
+		}
 		
 		if (enemyPaths.length >= 0xff)
 			throw "kmp encode: max enemy path number surpassed (have " + enemyPaths.length + ", max 254)"
@@ -609,7 +635,7 @@ class KmpData
 					w.writeByte(0xff)
 			}
 			
-			w.writeUInt16(0)
+			w.writeUInt16(getPathRouteCondition(path))
 		}
 		
 		// Prepare item points
@@ -683,7 +709,7 @@ class KmpData
 					w.writeByte(0xff)
 			}
 			
-			w.writeUInt16(0)
+			w.writeUInt16(getPathRouteCondition(path))
 		}
 						
 		// Prepare checkpoints
@@ -986,8 +1012,13 @@ class KmpData
 			node.setting1 = 0
 			node.setting2 = 0
 			node.setting3 = 0
+			node.routeGroupCondition = 0
 		}
-		this.enemyPoints.onCloneNode = (newNode, oldNode) => { cloneProperties(newNode, oldNode, "ENPT") }
+		this.enemyPoints.onCloneNode = (newNode, oldNode) =>
+		{
+			cloneProperties(newNode, oldNode, "ENPT")
+			newNode.routeGroupCondition = oldNode.routeGroupCondition || 0
+		}
 		
 		this.itemPoints = new NodeGraph()
 		this.itemPoints.maxNextNodes = 6
@@ -998,8 +1029,13 @@ class KmpData
 			node.deviation = 10
 			node.setting1 = 0
 			node.setting2 = 0
+			node.routeGroupCondition = 0
 		}
-		this.itemPoints.onCloneNode = (newNode, oldNode) => { cloneProperties(newNode, oldNode, "ITPT") }
+		this.itemPoints.onCloneNode = (newNode, oldNode) =>
+		{
+			cloneProperties(newNode, oldNode, "ITPT")
+			newNode.routeGroupCondition = oldNode.routeGroupCondition || 0
+		}
 		
 		this.objects = new NodeGraph()
 		this.objects.maxNodes = 0xffff

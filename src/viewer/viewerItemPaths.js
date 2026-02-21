@@ -44,10 +44,72 @@ class ViewerItemPaths extends PathViewer
 		panel.addSpacer(null)
 
 		let selectedPoints = this.data.itemPoints.nodes.filter(p => p.selected)
+		let itemPaths = this.data.itemPoints.convertToStorageFormat()
+		let selectedPaths = itemPaths.filter(path => path.nodes.find(p => p.selected) != null)
 		
 		let selectionGroup = panel.addGroup(null, "Selection:")
 		let enabled = (selectedPoints.length > 0)
 		let multiedit = (selectedPoints.length > 1)
+		let pathEnabled = (selectedPaths.length > 0)
+		let pathMultiedit = (selectedPaths.length > 1)
+
+		const setPathRouteCondition = (path, value) =>
+		{
+			let clampedValue = value & 0xffff
+			for (let node of path.nodes)
+				node.routeGroupCondition = clampedValue
+		}
+		const getPathRouteCondition = (path) => ((path.nodes[0].routeGroupCondition || 0) & 0xffff)
+		const getPathDisabledMask = (path) => ((getPathRouteCondition(path) >> 1) & 0xff)
+		const getPathInvert = (path) => ((getPathRouteCondition(path) & 0x200) != 0)
+		const lapMaskToList = (mask) =>
+		{
+			let laps = []
+			for (let i = 0; i < 8; i++)
+				if ((mask & (1 << i)) != 0)
+					laps.push((i + 1).toString())
+			return laps.join(",")
+		}
+		const parseLapList = (str) =>
+		{
+			if (str == null)
+				return 0
+
+			let text = ("" + str).trim()
+			if (text == "")
+				return 0
+
+			let mask = 0
+			for (let token of text.split(","))
+			{
+				let t = token.trim()
+				if (t == "")
+					continue
+
+				let lap = parseInt(t, 10)
+				if (!isFinite(lap) || isNaN(lap))
+					continue
+				if (lap < 1 || lap > 8)
+					continue
+
+				mask |= (1 << (lap - 1))
+			}
+			return mask & 0xff
+		}
+		const buildRouteConditionDescription = (path) =>
+		{
+			let mask = getPathDisabledMask(path)
+			let invert = getPathInvert(path)
+			let laps = lapMaskToList(mask)
+
+			if (mask == 0)
+				return "No lap filtering (all laps enabled)."
+
+			if (!invert)
+				return "Disables laps in list: " + laps + "."
+
+			return "Disables laps NOT in list: " + laps + "."
+		}
 		
 		if (selectedPoints.length == 1)
 		{
@@ -92,6 +154,33 @@ class ViewerItemPaths extends PathViewer
 			{ str: "B.Bill can't stop & Low-priority route", value: 0xb },
 		]
 		panel.addSelectionDropdown(selectionGroup, "Setting 2", selectedPoints.map(p => p.setting2), setting2Options, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].setting2 = x })
+
+		panel.addSpacer(selectionGroup)
+		panel.addText(selectionGroup, "<strong>RR-Specific Feature: Route Group Conditions</strong>")
+		panel.addText(selectionGroup, "Disabled laps list uses comma-separated lap numbers (example: 1,3,5).")
+		panel.addSelectionTextInput(selectionGroup, "Disabled Laps", selectedPaths.map(p => lapMaskToList(getPathDisabledMask(p))), pathEnabled, pathMultiedit, (x, i) =>
+		{
+			this.window.setNotSaved()
+			let current = getPathRouteCondition(selectedPaths[i])
+			let listMask = parseLapList(x)
+			setPathRouteCondition(selectedPaths[i], (current & ~0x1fe) | (listMask << 1))
+		})
+		let invertOptions =
+		[
+			{ str: "Off", value: 0 },
+			{ str: "On", value: 1 }
+		]
+		panel.addSelectionDropdown(selectionGroup, "Invert Mask", selectedPaths.map(p => (getPathInvert(p) ? 1 : 0)), invertOptions, pathEnabled, pathMultiedit, (x, i) =>
+		{
+			this.window.setNotSaved()
+			let current = getPathRouteCondition(selectedPaths[i])
+			if (x == 0)
+				setPathRouteCondition(selectedPaths[i], current & ~0x200)
+			else
+				setPathRouteCondition(selectedPaths[i], current | 0x200)
+		})
+		if (selectedPaths.length == 1)
+			panel.addText(selectionGroup, "<em>" + buildRouteConditionDescription(selectedPaths[0]) + "</em>")
 	}
 	
 	
@@ -128,6 +217,7 @@ class ViewerItemPaths extends PathViewer
 			node.deviation = 10
 			node.setting1 = 0
 			node.setting2 = 0
+			node.routeGroupCondition = 0
 		}
 		newGraph.onCloneNode = (newNode, oldNode) => 
 		{
@@ -135,6 +225,7 @@ class ViewerItemPaths extends PathViewer
 			newNode.deviation = oldNode.deviation
 			newNode.setting1 = oldNode.setting1
 			newNode.setting2 = oldNode.setting2
+			newNode.routeGroupCondition = oldNode.routeGroupCondition || 0
 		}
 
 		for (let point of newGraph.nodes)
