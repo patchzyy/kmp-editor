@@ -114,6 +114,7 @@ class MainWindow
 			kclTriIndex: [-1, -1],
 
 			enableRotationRender: true,
+			enableGravityFieldRender: true,
 
 			startPointsEnableZoneRender: true,
 

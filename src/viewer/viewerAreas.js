@@ -21,6 +21,21 @@ class ViewerAreas extends PointViewer
             .addCylinder(5000, 5000, -10000, -5000, -5000, 0, 24)
             .calculateNormals()
             .makeModel(viewer.gl)
+
+        this.modelAreaSphere = new ModelBuilder()
+            .addSphere(5000, 5000, -10000, -5000, -5000, 0, 16)
+            .calculateNormals()
+            .makeModel(viewer.gl)
+
+        this.modelGravityFlow = new ModelBuilder()
+            .addCylinder(-250, -250, -10000, 250, 250, 0, 16)
+            .calculateNormals()
+            .makeModel(viewer.gl)
+
+        this.modelGravityFlowArrow = new ModelBuilder()
+            .addCone(-500, -500, -9000, 500, 500, -12500, 16)
+            .calculateNormals()
+            .makeModel(viewer.gl)
 	}
 
 
@@ -40,6 +55,7 @@ class ViewerAreas extends PointViewer
 		panel.addText(null, "<strong>Hold Ctrl:</strong> Multiselect")
 
         panel.addCheckbox(null, "Draw rotation guides", this.viewer.cfg.enableRotationRender, (x) => this.viewer.cfg.enableRotationRender = x)
+        panel.addCheckbox(null, "Draw gravity flow guides", this.viewer.cfg.enableGravityFieldRender !== false, (x) => this.viewer.cfg.enableGravityFieldRender = x)
 		panel.addSpacer(null)
 
 		panel.addButton(null, "(A) Select/Unselect All", () => this.toggleAllSelection())
@@ -78,15 +94,29 @@ class ViewerAreas extends PointViewer
             { str: "Object Group", value: 8 },
             { str: "Object Unload", value: 9 },
             { str: "Fall Boundary", value: 10 },
+            { str: "Gravity Field", value: 11 },
 		]
-		panel.addSelectionDropdown(selectionGroup, "Type", selectedPoints.map(p => p.type), typeOptions, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].type = x; this.refresh() })
+		panel.addSelectionDropdown(selectionGroup, "Type", selectedPoints.map(p => p.type), typeOptions, enabled, multiedit, (x, i) => {
+            this.window.setNotSaved()
+            selectedPoints[i].type = Number(x)
+            if (Number(x) === 11)
+            {
+                if (selectedPoints[i].enemyIndex === 0xff)
+                    selectedPoints[i].enemyIndex = (Number(selectedPoints[i].shape) === 1 ? 1 : 0)
+                if (selectedPoints[i].setting1 == 0)
+                    selectedPoints[i].setting1 = 1300
+                if (selectedPoints[i].setting2 == 0)
+                    selectedPoints[i].setting2 = 8
+            }
+            this.refresh()
+        })
 		
         let shapeOptions =
 		[
 			{ str: "Box", value: 0 },
 			{ str: "Cylinder", value: 1 },
 		]
-		panel.addSelectionDropdown(selectionGroup, "Shape", selectedPoints.map(p => p.shape), shapeOptions, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].shape = x; this.refresh() })
+		panel.addSelectionDropdown(selectionGroup, "Shape", selectedPoints.map(p => p.shape), shapeOptions, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].shape = Number(x); this.refresh() })
 		
 		panel.addSelectionNumericInput(selectionGroup,       "X", -1000000, 1000000, selectedPoints.map(p =>  p.pos.x),       null, 100.0, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].pos.x = x })
 		panel.addSelectionNumericInput(selectionGroup,       "Y", -1000000, 1000000, selectedPoints.map(p => -p.pos.z),       null, 100.0, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].pos.z = -x })
@@ -99,7 +129,7 @@ class ViewerAreas extends PointViewer
 		panel.addSelectionNumericInput(selectionGroup, "Scale Z", -1000000, 1000000, selectedPoints.map(p =>  p.scale.z),     null, 0.1, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].scale.z = x })
         panel.addSelectionNumericInput(selectionGroup, "Priority", 0, 0xff, selectedPoints.map(p => p.priority), 1.0, 1.0, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].priority = x })
 		
-        let selectionType = (enabled && selectedPoints.every(p => p.type == selectedPoints[0].type) ? selectedPoints[0].type : -1)
+        let selectionType = (enabled && selectedPoints.every(p => Number(p.type) === Number(selectedPoints[0].type)) ? Number(selectedPoints[0].type) : -1)
 
 		switch (selectionType)
 		{
@@ -172,6 +202,39 @@ class ViewerAreas extends PointViewer
 					panel.addSelectionNumericInput(selectionGroup, (coobPoints[0].routeIndex == 1 ? "KCP Number" : "End Index"), 0, 0xffff, selectedPoints.map(p => p.setting2), 1.0, 1.0, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].setting2 = x })
 				}
 				break
+
+            case 11:
+                panel.addText(selectionGroup, "Direction: local +Y (top) to -Y (bottom). Use Rot. X/Y/Z to aim it.")
+                let gravityShapeOptions =
+                [
+                    { str: "Box", value: 0 },
+                    { str: "Cylinder", value: 1 },
+                    { str: "Sphere", value: 2 },
+                ]
+                panel.addSelectionDropdown(
+                    selectionGroup,
+                    "Volume Shape",
+                    selectedPoints.map(p => {
+                        const shape = Number(p.enemyIndex)
+                        if (shape === 0 || shape === 1 || shape === 2)
+                            return shape
+                        return Number(p.shape) === 1 ? 1 : 0
+                    }),
+                    gravityShapeOptions,
+                    enabled,
+                    multiedit,
+                    (x, i) => {
+                        this.window.setNotSaved()
+                        const volumeShape = Number(x)
+                        selectedPoints[i].enemyIndex = volumeShape
+                        // Keep KMP's native shape field valid (0/1) for compatibility.
+                        selectedPoints[i].shape = (volumeShape === 0 ? 0 : 1)
+                        this.refresh()
+                    }
+                )
+                panel.addSelectionNumericInput(selectionGroup, "Strength x1000", 0, 0xffff, selectedPoints.map(p => p.setting1), 1.0, 1.0, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].setting1 = x })
+                panel.addSelectionNumericInput(selectionGroup, "Blend Frames", 0, 0xffff, selectedPoints.map(p => p.setting2), 1.0, 1.0, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].setting2 = x })
+                break
 		}
     }
 
@@ -182,12 +245,31 @@ class ViewerAreas extends PointViewer
 		
 		for (let point of this.data.areaPoints.nodes)
 		{
+            let gravityVolumeShape = (Number(point.type) === 11 ? Number(point.enemyIndex) : -1)
+            let areaModel = this.modelAreaBox
+            if (gravityVolumeShape === 2)
+                areaModel = this.modelAreaSphere
+            else
+                areaModel = (Number(point.shape) === 1 ? this.modelAreaCylinder : this.modelAreaBox)
+
             point.rendererArea = new GfxNodeRendererTransform()
 				.attach(this.scene.root)
-				.setModel(point.shape ? this.modelAreaCylinder : this.modelAreaBox)
+				.setModel(areaModel)
 				.setMaterial(this.viewer.material)
+
+            point.rendererGravityFlow = new GfxNodeRendererTransform()
+                .attach(this.sceneAfter.root)
+                .setModel(this.modelGravityFlow)
+                .setMaterial(this.viewer.materialUnshaded)
+
+            point.rendererGravityFlowArrow = new GfxNodeRendererTransform()
+                .attach(this.sceneAfter.root)
+                .setModel(this.modelGravityFlowArrow)
+                .setMaterial(this.viewer.materialUnshaded)
 				
             this.renderers.push(point.rendererArea)
+            this.renderers.push(point.rendererGravityFlow)
+            this.renderers.push(point.rendererGravityFlowArrow)
 		}
 		
 		this.refreshPanels()
@@ -244,6 +326,7 @@ class ViewerAreas extends PointViewer
 		{
 			let pointHidden = this.isPointHidden(point)
 			let scale = (this.hoveringOverPoint == point ? 1.5 : 1) * this.viewer.getElementScale(point.pos)
+            let time = Date.now() * 0.004
 			
 			point.renderer
 				.setTranslation(point.pos)
@@ -270,6 +353,14 @@ class ViewerAreas extends PointViewer
 				.mul(Mat4.rotation(new Vec3(0, 0, 1), -point.rotation.y * Math.PI / 180))
 				.mul(Mat4.rotation(new Vec3(0, 1, 0), -point.rotation.z * Math.PI / 180))
 				.mul(Mat4.translation(point.pos.x, point.pos.y, point.pos.z))
+
+            // Keep gravity guide thickness stable regardless AREA dimensions.
+            let safeScaleX = Math.max(0.0001, Math.abs(point.scale.x))
+            let safeScaleY = Math.max(0.0001, Math.abs(point.scale.z))
+            let gravityFlowMatrix =
+                Mat4.scale(0.16 / safeScaleX, 0.16 / safeScaleY, 1.0)
+                .mul(areaScale)
+                .mul(matrixDirection)
 				
 			point.rendererDirection
 				.setCustomMatrix(pointScale.mul(matrixDirection))
@@ -290,6 +381,17 @@ class ViewerAreas extends PointViewer
                 .setCustomMatrix(areaScale.mul(matrixDirection))
                 .setDiffuseColor([1, 0.7, 0, 0.5])
                 .setEnabled(!pointHidden && point.isRendered)
+
+            point.rendererGravityFlow
+                .setCustomMatrix(gravityFlowMatrix)
+                .setDiffuseColor([0.2, 0.9, 1.0, 1.0])
+                .setEnabled(!pointHidden && Number(point.type) === 11 && this.viewer.cfg.enableGravityFieldRender !== false)
+
+            const arrowPulse = 0.7 + 0.3 * Math.sin(time)
+            point.rendererGravityFlowArrow
+                .setCustomMatrix(Mat4.translation(0, 0, -1000 * arrowPulse).mul(gravityFlowMatrix))
+                .setDiffuseColor([0.0, 0.7, 1.0, 1.0])
+                .setEnabled(!pointHidden && Number(point.type) === 11 && this.viewer.cfg.enableGravityFieldRender !== false)
 		}
 		
 		this.scene.render(this.viewer.gl, this.viewer.getCurrentCamera())
