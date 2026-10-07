@@ -262,6 +262,11 @@ class KmpData
 					sectionData[sectionId].entries.push(props)
 				}
 
+				// RR CKPT trailer: one action byte per checkpoint, following the unchanged 20-byte entries.
+				if (sectionId === "CKPT" && headerData === 0x5252)
+					for (let point of sectionData[sectionId].entries)
+						point.rrMusic = parser.readByte()
+
 				// After reading all GOBJ entries, unpack conditional fields from presence flags
 				if (sectionId === "GOBJ" && entryNum > 0)
 				{
@@ -411,6 +416,7 @@ class KmpData
 			let node = data.checkpointPoints.addNode()
 			node.pos = [new Vec3(kmpPoint.x1, -kmpPoint.z1, 0), new Vec3(kmpPoint.x2, -kmpPoint.z2, 0)]
 			node.type = kmpPoint.type
+			node.rrMusic = kmpPoint.rrMusic || 0
 			node.respawnNode = null
 			node.firstInPath = false
 			node.isRendered = true
@@ -733,7 +739,8 @@ class KmpData
 		w.seek(sectionCkptAddr)
 		w.writeAscii(sectionId)
 		w.writeUInt16(checkpointPoints.length)
-		w.writeUInt16(this.headerData[sectionId])
+		let hasRrMusic = checkpointPoints.some(p => p.rrMusic != 0)
+		w.writeUInt16(hasRrMusic ? 0x5252 : (this.headerData[sectionId] === 0x5252 ? 0 : this.headerData[sectionId]))
 		for (let i = 0; i < checkpointPoints.length; i++)
 		{
 			let p = checkpointPoints[i]
@@ -755,6 +762,13 @@ class KmpData
 			
 			w.writeByte(indexInPath > 0 ? (i - 1) : 0xff)
 			w.writeByte(indexInPath < path.nodes.length - 1 ? (i + 1) : 0xff)
+		}
+		if (hasRrMusic)
+		{
+			for (let p of checkpointPoints)
+				w.writeByte(p.rrMusic)
+			while (w.head % 4 != 0)
+				w.writeByte(0)
 		}
 		
 		// Write CKPH
@@ -1070,6 +1084,7 @@ class KmpData
 			node.respawnNode = null
 			node.respawnIndex = 0
 			node.type = 0xff
+			node.rrMusic = 0
 			node.firstInPath = false
 			node.isRendered = true
 		}
@@ -1079,6 +1094,7 @@ class KmpData
 			newNode.respawnNode = oldNode.respawnNode
 			newNode.respawnIndex = oldNode.respawnIndex
 			newNode.type = oldNode.type
+			newNode.rrMusic = oldNode.rrMusic
 			newNode.firstInPath = oldNode.firstInPath
 			newNode.isRendered = oldNode.isRendered
 		}

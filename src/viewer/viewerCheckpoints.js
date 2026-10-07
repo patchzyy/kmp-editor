@@ -187,6 +187,21 @@ class ViewerCheckpoints
 		panel.addText(selectionGroup, "<strong>Type 0:</strong> Lap Counter")
 		panel.addText(selectionGroup, "<strong>Type 1-254:</strong> Key Checkpoints")
 		panel.addText(selectionGroup, "<strong>Type 255:</strong> Regular Checkpoint")
+
+		if (this.viewer.cfg.enableRrFeatures)
+		{
+			panel.addSpacer(selectionGroup)
+			panel.addText(selectionGroup, "<strong>Checkpoint Music:</strong>")
+			panel.addSelectionDropdown(selectionGroup, "Music Action", selectedPoints.map(p => p.rrMusic & 3), [
+				{ str: "None", value: 0 },
+				{ str: "Next BRSTM", value: 1 },
+				{ str: "Final Lap BRSTM", value: 2 },
+			], enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].rrMusic = (selectedPoints[i].rrMusic & 4) | x })
+			panel.addSelectionDropdown(selectionGroup, "Lap Jingle", selectedPoints.map(p => (p.rrMusic >> 2) & 1), [
+				{ str: "Off", value: 0 },
+				{ str: "On", value: 1 },
+			], enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].rrMusic = (selectedPoints[i].rrMusic & 3) | (x << 2) })
+		}
 	}
 	
 	

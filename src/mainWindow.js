@@ -97,6 +97,7 @@ class MainWindow
 			this.cfg =
 			{
 				isBattleTrack: false,
+				enableRrFeatures: false,
 				useOrthoProjection: false,
 				cameraMovementSpeed: 0.5,
 				pointScale: 1,
@@ -288,6 +289,7 @@ class MainWindow
 		let sectionSelect = document.getElementById("selectSection")
 		let panelSearchInput = document.getElementById("inputPanelSearch")
 		let focusModeToggle = document.getElementById("toggleFocusMode")
+		let rrFeaturesToggle = document.getElementById("toggleRrFeatures")
 
 		if (sectionSelect != null)
 		{
@@ -317,6 +319,16 @@ class MainWindow
 			{
 				this.ui.focusMode = focusModeToggle.checked
 				this.applyPanelVisibility()
+			}
+		}
+
+		if (rrFeaturesToggle != null)
+		{
+			rrFeaturesToggle.checked = this.cfg.enableRrFeatures
+			rrFeaturesToggle.onchange = () =>
+			{
+				this.cfg.enableRrFeatures = rrFeaturesToggle.checked
+				this.refreshPanels()
 			}
 		}
 	}
