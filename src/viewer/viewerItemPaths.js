@@ -155,32 +155,34 @@ class ViewerItemPaths extends PathViewer
 		]
 		panel.addSelectionDropdown(selectionGroup, "Setting 2", selectedPoints.map(p => p.setting2), setting2Options, enabled, multiedit, (x, i) => { this.window.setNotSaved(); selectedPoints[i].setting2 = x })
 
-		panel.addSpacer(selectionGroup)
-		panel.addText(selectionGroup, "<strong>RR-Specific Feature: Route Group Conditions</strong>")
-		panel.addText(selectionGroup, "Disabled laps list uses comma-separated lap numbers (example: 1,3,5).")
-		panel.addSelectionTextInput(selectionGroup, "Disabled Laps", selectedPaths.map(p => lapMaskToList(getPathDisabledMask(p))), pathEnabled, pathMultiedit, (x, i) =>
+		if (this.viewer.cfg.enableRrFeatures)
 		{
-			this.window.setNotSaved()
-			let current = getPathRouteCondition(selectedPaths[i])
-			let listMask = parseLapList(x)
-			setPathRouteCondition(selectedPaths[i], (current & ~0x1fe) | (listMask << 1))
-		})
-		let invertOptions =
-		[
-			{ str: "Off", value: 0 },
-			{ str: "On", value: 1 }
-		]
-		panel.addSelectionDropdown(selectionGroup, "Invert Mask", selectedPaths.map(p => (getPathInvert(p) ? 1 : 0)), invertOptions, pathEnabled, pathMultiedit, (x, i) =>
-		{
-			this.window.setNotSaved()
-			let current = getPathRouteCondition(selectedPaths[i])
-			if (x == 0)
-				setPathRouteCondition(selectedPaths[i], current & ~0x200)
-			else
-				setPathRouteCondition(selectedPaths[i], current | 0x200)
-		})
-		if (selectedPaths.length == 1)
-			panel.addText(selectionGroup, "<em>" + buildRouteConditionDescription(selectedPaths[0]) + "</em>")
+			panel.addSpacer(selectionGroup)
+			panel.addText(selectionGroup, "<strong>Route Group Conditions:</strong>")
+			panel.addSelectionTextInput(selectionGroup, "Disabled Laps", selectedPaths.map(p => lapMaskToList(getPathDisabledMask(p))), pathEnabled, pathMultiedit, (x, i) =>
+			{
+				this.window.setNotSaved()
+				let current = getPathRouteCondition(selectedPaths[i])
+				let listMask = parseLapList(x)
+				setPathRouteCondition(selectedPaths[i], (current & ~0x1fe) | (listMask << 1))
+			})
+			let invertOptions =
+			[
+				{ str: "Off", value: 0 },
+				{ str: "On", value: 1 }
+			]
+			panel.addSelectionDropdown(selectionGroup, "Invert Mask", selectedPaths.map(p => (getPathInvert(p) ? 1 : 0)), invertOptions, pathEnabled, pathMultiedit, (x, i) =>
+			{
+				this.window.setNotSaved()
+				let current = getPathRouteCondition(selectedPaths[i])
+				if (x == 0)
+					setPathRouteCondition(selectedPaths[i], current & ~0x200)
+				else
+					setPathRouteCondition(selectedPaths[i], current | 0x200)
+			})
+			if (selectedPaths.length == 1)
+				panel.addText(selectionGroup, "<em>" + buildRouteConditionDescription(selectedPaths[0]) + "</em>")
+		}
 	}
 	
 	

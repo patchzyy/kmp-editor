@@ -671,7 +671,7 @@ class ViewerObjects extends PointViewer
 		if (this.viewer.cfg.enableRrFeatures)
 		{
 			panel.addSpacer(selectionGroup)
-			panel.addText(selectionGroup, "<strong>Conditional Objects (Presence Flags bits 3-11, Padding for Lap Progress %):</strong>")
+			panel.addText(selectionGroup, "<strong>Conditional Objects:</strong>")
 			panel.addSelectionDropdown(selectionGroup, "Cond. Mode", selectedPoints.map(p => p.condMode || 0), conditionalModeOptions, enabled, multiedit, (x, i) => {
 				this.window.setNotSaved()
 				selectedPoints[i].condMode = x
