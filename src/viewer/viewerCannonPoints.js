@@ -25,6 +25,15 @@ class ViewerCannonPoints extends PointViewer
 	{
 		return this.data.cannonPoints
 	}
+
+
+	reloadKclHighlight()
+	{
+		if (typeof this.window.reloadCurrentKcl === "function")
+			this.window.reloadCurrentKcl()
+		else
+			this.window.openKcl(this.window.currentKclFilename)
+	}
 	
 	
 	refreshPanels()
@@ -48,7 +57,7 @@ class ViewerCannonPoints extends PointViewer
 				this.window.hl.reset()
 				this.window.hl.baseType = x ? 0x11 : -1
 				this.window.hl.basicEffect = x ? selectedIndex : -1
-				this.window.openKcl(this.window.currentKclFilename)
+				this.reloadKclHighlight()
 				this.highlighting = true
 			}
 		})
@@ -73,14 +82,14 @@ class ViewerCannonPoints extends PointViewer
 				this.window.hl.reset()
 				this.window.hl.baseType = 0x11
 				this.window.hl.basicEffect = selectedIndex
-				this.window.openKcl(this.window.currentKclFilename)
+				this.reloadKclHighlight()
 				this.highlighting = true
 			}
 		}
 		else if (this.highlighting)
 		{
 			this.window.hl.reset()
-			this.window.openKcl(this.window.currentKclFilename)
+			this.reloadKclHighlight()
 			this.highlighting = false
 		}
 		
